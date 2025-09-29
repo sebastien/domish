@@ -17,7 +17,7 @@ const tags = (...tags) =>
 			r.set(v.toUpperCase(), true),
 			r
 		),
-		new Map()
+		new Map(),
 	);
 
 const HTML_EMPTY = tags(
@@ -33,7 +33,7 @@ const HTML_EMPTY = tags(
 	"isindex",
 	"link",
 	"meta",
-	"param"
+	"param",
 );
 
 const HTML_NOEMPTY = tags("slot");
@@ -64,7 +64,7 @@ class Query {
 							...attrs,
 							value:
 								attrs.value_0 || attrs.value_1 || attrs.value_2,
-					  }
+						}
 					: null,
 			};
 		});
@@ -104,7 +104,7 @@ class Query {
 					return true;
 				default:
 					throw new Error(
-						`Unsupported type: ${type} in ${this.selectors[i]}`
+						`Unsupported type: ${type} in ${this.selectors[i]}`,
 					);
 			}
 		}
@@ -275,7 +275,7 @@ export class Node {
 					const r = _.cloneNode(deep);
 					r.parentNode = n;
 					return r;
-			  })
+				})
 			: [];
 		return n;
 	}
@@ -342,8 +342,8 @@ export class Node {
 			case Node.DOCUMENT_FRAGMENT_NODE:
 			case Node.ELEMENT_NODE:
 				// Handle <br> elements as newlines
-				if (this.nodeName && this.nodeName.toLowerCase() === 'br') {
-					yield '\n';
+				if (this.nodeName && this.nodeName.toLowerCase() === "br") {
+					yield "\n";
 					return;
 				}
 				for (const n of this.childNodes) {
@@ -396,10 +396,10 @@ export class Node {
 					const empty = !options.html
 						? undefined
 						: HTML_NOEMPTY.has(name)
-						? false
-						: HTML_EMPTY.has(name)
-						? true
-						: undefined;
+							? false
+							: HTML_EMPTY.has(name)
+								? true
+								: undefined;
 					yield `<${name}`;
 					// TODO: Fix attribute serialisation
 					for (let [k, v] of this._attributes.entries()) {
@@ -409,8 +409,8 @@ export class Node {
 								.concat(
 									Object.entries(this.style).map(
 										([k, v]) =>
-											`${toCSSPropertyName(k)}: ${v}`
-									)
+											`${toCSSPropertyName(k)}: ${v}`,
+									),
 								)
 								.join(";");
 							v = v && v.length > 0 ? v : undefined;
@@ -518,23 +518,35 @@ export class AttributeNode extends Node {
 		this.name = name;
 		this.namespace = namespace;
 		this.ownerElement = ownerElement;
+		this._value = undefined;
 	}
 
 	get value() {
-		return (
-			(this.namespace
-				? this.ownerElement.getAttributeNS(this.namespace, this.name)
-				: this.ownerElement.getAttribute(this.name)) || ""
-		);
+		return this.ownerElement
+			? (this.namespace
+					? this.ownerElement.getAttributeNS(
+							this.namespace,
+							this.name,
+						)
+					: this.ownerElement.getAttribute(this.name)) || ""
+			: this._value || "";
 	}
 
 	set value(value) {
-		this.namespace
-			? this.ownerElement.setAttributeNS(this.namespace, this.name, value)
-			: this.ownerElement.setAttribute(this.name, value);
+		this._value = value;
+		if (this.ownerElement) {
+			this.namespace
+				? this.ownerElement?.setAttributeNS(
+						this.namespace,
+						this.name,
+						value,
+					)
+				: this.ownerElement?.setAttribute(this.name, value);
+		}
 	}
 }
 
+// TODO: Should refactor attribtues to use AttirbuteNode maybe?
 export class Element extends Node {
 	constructor(name, namespace) {
 		super(name, Node.ELEMENT_NODE);
@@ -560,7 +572,7 @@ export class Element extends Node {
 				[...this._attributesNS.entries()].reduce((r, [ns, k]) => {
 					r.push(new AttributeNode(k, ns, this));
 					return r;
-				}, [])
+				}, []),
 			);
 	}
 
@@ -584,6 +596,18 @@ export class Element extends Node {
 	setAttribute(name, value) {
 		// FIXME: Handling of style attribute
 		this._attributes.set(name, `${value}`);
+	}
+
+	setAttributeNode(node) {
+		node.ownerElement = this;
+		this._attributes.set(node.name, node.value);
+	}
+
+	getAttributeNode(name) {
+		if (this._attributes.has(name)) {
+			return new AttributeNode(name, null, this);
+		}
+		return null;
 	}
 
 	setAttributeNS(ns, name, value) {
@@ -703,8 +727,13 @@ export class Document extends Node {
 	createTreeWalker(node, nodeFilter) {
 		return new TreeWalker(node, nodeFilter);
 	}
+
 	createTextNode(value) {
 		return new TextNode(value);
+	}
+
+	createAttribute(name) {
+		return new AttributeNode(name, null, null);
 	}
 
 	createComment(value) {
@@ -840,7 +869,7 @@ export class TokenList {
 			this._get()
 				.split(" ")
 				.filter((_) => _ == value)
-				.join(" ")
+				.join(" "),
 		);
 	}
 	toggle(value) {
