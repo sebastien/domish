@@ -1,7 +1,14 @@
 // This is a Bard-assisted port of my Python's XMLish module. It's a simple HTML/XML
 // parser that can be used in both SAX/DOM style.
 
-import { Document, HTML_EMPTY } from "./domish.js";
+// Main code
+let Document: any, HTML_EMPTY: any;
+
+// Explicit imports at the end
+import { Document as Document_, HTML_EMPTY as HTML_EMPTY_ } from "./domish.js";
+
+Document = Document_;
+HTML_EMPTY = HTML_EMPTY_;
 
 class Fragment {
 	/** Represents a text fragment. */

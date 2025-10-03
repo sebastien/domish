@@ -17,7 +17,7 @@ const tags = (...tags: string[]): Map<string, boolean> =>
 			r.set(v.toUpperCase(), true),
 			r
 		),
-		new Map<string, boolean>(),
+		new Map<string, boolean>()
 	);
 
 const HTML_EMPTY = tags(
@@ -33,7 +33,7 @@ const HTML_EMPTY = tags(
 	"isindex",
 	"link",
 	"meta",
-	"param",
+	"param"
 );
 
 const HTML_NOEMPTY = tags("slot");
@@ -69,22 +69,28 @@ class Query {
 		// TODO: We should fail if the selector is not supported
 		this.text = query;
 		const matches = query.match(RE_QUERY);
-		this.selectors = matches ? matches.map((match: any) => {
-			const attrs = match.groups?.attributes
-				? match.groups.attributes.match(RE_QUERY_ATTR)?.groups
-				: null;
-			return {
-				type: match.groups?.attributes ? "@" : match.groups?.type || "",
-				name: match.groups?.name || "",
-				attributes: attrs
-					? {
-							...attrs,
-							value:
-								attrs.value_0 || attrs.value_1 || attrs.value_2,
-					  }
-					: null,
-			};
-		}) : [];
+		this.selectors = matches
+			? matches.map((match: any) => {
+					const attrs = match.groups?.attributes
+						? match.groups.attributes.match(RE_QUERY_ATTR)?.groups
+						: null;
+					return {
+						type: match.groups?.attributes
+							? "@"
+							: match.groups?.type || "",
+						name: match.groups?.name || "",
+						attributes: attrs
+							? {
+									...attrs,
+									value:
+										attrs.value_0 ||
+										attrs.value_1 ||
+										attrs.value_2,
+								}
+							: null,
+					};
+				})
+			: [];
 	}
 
 	match(node: Node): boolean {
@@ -122,7 +128,7 @@ class Query {
 					return true;
 				default:
 					throw new Error(
-						`Unsupported type: ${type} in ${JSON.stringify(this.selectors[i])}`,
+						`Unsupported type: ${type} in ${JSON.stringify(this.selectors[i])}`
 					);
 			}
 		}
@@ -264,7 +270,9 @@ export class Node {
 	// ### Common methods
 	appendChild(node: Node): Node {
 		if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-			for (const n of (node as DocumentFragment).childNodes) {
+			// Create a copy of the children array to avoid modification during iteration
+			const children = [...(node as DocumentFragment).childNodes];
+			for (const n of children) {
 				this.appendChild(n);
 			}
 		} else {
@@ -312,7 +320,7 @@ export class Node {
 					const r = _.cloneNode(deep);
 					r.parentNode = n;
 					return r;
-			  })
+				})
 			: [];
 		return n;
 	}
@@ -338,12 +346,39 @@ export class Node {
 		return this;
 	}
 
-	insertBefore(newNode: Node, referenceNode: Node): Node {
-		const i = this.childNodes.indexOf(referenceNode);
-		if (i >= 0) {
-			this.childNodes.splice(i, 0, newNode._attach(this));
+	insertBefore(newNode: Node, referenceNode: Node | null): Node {
+		// Handle null referenceNode - append to end
+		if (referenceNode === null) {
+			return this.appendChild(newNode);
 		}
-		return this;
+		// Check if referenceNode is a child of this node
+		const i = this.childNodes.indexOf(referenceNode);
+		if (i < 0) {
+			throw new Error(
+				"NotFoundError: The reference node is not a child of this node"
+			);
+		}
+
+		// Handle DocumentFragment - insert all children
+		if (newNode.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+			const fragment = newNode as DocumentFragment;
+			const children = [...fragment.childNodes]; // Create a copy to avoid mutation issues
+			for (const child of children) {
+				this.insertBefore(child, referenceNode);
+			}
+			return newNode;
+		}
+
+		// Detach newNode from current parent if it has one
+		if (newNode.parentNode) {
+			newNode.parentNode.removeChild(newNode);
+		}
+
+		// Insert the node
+		this.childNodes.splice(i, 0, newNode);
+		newNode.parentNode = this;
+
+		return newNode;
 	}
 
 	// --
@@ -411,14 +446,21 @@ export class Node {
 	*iterXMLLines(options?: { [key: string]: any }): Generator<string> {
 		const has_comments =
 			options && options.comments === false ? false : true;
-		const has_doctype = options && options.docytpe === false ? false : true;
+		const has_doctype = options && options.doctype === false ? false : true;
 
 		switch (this.nodeType) {
 			case Node.DOCUMENT_NODE:
-			case Node.DOCUMENT_FRAGMENT_NODE:
 				if (has_doctype) {
 					yield "<?xml version='1.0' charset='utf-8' ?>\n";
 				}
+				for (const n of this.childNodes) {
+					for (const l of n.iterXMLLines(options)) {
+						yield l;
+					}
+				}
+				break;
+			case Node.DOCUMENT_FRAGMENT_NODE:
+				// Document fragments should not output XML declarations
 				for (const n of this.childNodes) {
 					for (const l of n.iterXMLLines(options)) {
 						yield l;
@@ -431,13 +473,14 @@ export class Node {
 					const name = element.namespace
 						? `${element.namespace}:${this.nodeName}`
 						: `${this.nodeName}`;
-					const empty = !options || !options.html
-						? undefined
-						: HTML_NOEMPTY.has(name)
-						? false
-						: HTML_EMPTY.has(name)
-						? true
-						: undefined;
+					const empty =
+						!options || !options.html
+							? undefined
+							: HTML_NOEMPTY.has(name)
+								? false
+								: HTML_EMPTY.has(name)
+									? true
+									: undefined;
 					yield `<${name}`;
 					// Handle style attribute
 					let styleAttr: AttributeNode | null = null;
@@ -445,9 +488,9 @@ export class Node {
 						if (k === "style") {
 							styleAttr = v;
 						} else if (v && v.value !== undefined) {
-								yield v.value === null
-									? ` ${k}`
-									: ` ${k}="${v.value || ''}"`;
+							yield v.value === null
+								? ` ${k}`
+								: ` ${k}="${v.value || ""}"`;
 						}
 					}
 
@@ -455,7 +498,10 @@ export class Node {
 					if (styleAttr || Object.keys(element.style).length > 0) {
 						let styleValue = styleAttr ? styleAttr.value : "";
 						const inlineStyles = Object.keys(element.style)
-							.map((k) => `${toCSSPropertyName(k)}: ${element.style[k]}`)
+							.map(
+								(k) =>
+									`${toCSSPropertyName(k)}: ${element.style[k]}`
+							)
 							.join(";");
 						if (inlineStyles) {
 							styleValue = styleValue
@@ -475,11 +521,11 @@ export class Node {
 									ns === "http://www.w3.org/1999/xlink"
 										? "xlink"
 										: ns === "http://www.w3.org/2000/svg"
-										? "svg"
-										: ns ===
-										  "http://www.w3.org/XML/1998/namespace"
-										? "xml"
-										: null;
+											? "svg"
+											: ns ===
+													"http://www.w3.org/XML/1998/namespace"
+												? "xml"
+												: null;
 								const attrName = prefix ? `${prefix}:${k}` : k;
 								yield v.value === null
 									? ` ${attrName}`
@@ -580,7 +626,11 @@ export class AttributeNode extends Node {
 	ownerElement: Element | null;
 	_value: string | undefined;
 
-	constructor(name: string, namespace: string | null, ownerElement: Element | null) {
+	constructor(
+		name: string,
+		namespace: string | null,
+		ownerElement: Element | null
+	) {
 		super(name, Node.ATTRIBUTE_NODE);
 		this.name = name;
 		this.namespace = namespace;
@@ -592,7 +642,7 @@ export class AttributeNode extends Node {
 		if (this.ownerElement) {
 			if (this.namespace) {
 				const nsMap = this.ownerElement._attributesNS.get(
-					this.namespace,
+					this.namespace
 				);
 				const attr = nsMap ? nsMap.get(this.name) : null;
 				return attr ? attr._value || "" : "";
@@ -612,7 +662,7 @@ export class AttributeNode extends Node {
 				if (!this.ownerElement._attributesNS.has(this.namespace)) {
 					this.ownerElement._attributesNS.set(
 						this.namespace,
-						new Map(),
+						new Map()
 					);
 				}
 				this.ownerElement._attributesNS
@@ -671,7 +721,17 @@ export class Element extends Node {
 		if (name === "style") {
 			this.style = {};
 		}
+		// Remove from regular attributes
 		this._attributes.delete(name);
+
+		// Also remove from all namespace maps (DOM spec: removeAttribute should remove regardless of namespace)
+		for (const [namespace, nsMap] of this._attributesNS.entries()) {
+			nsMap.delete(name);
+			// Clean up empty namespace maps
+			if (nsMap.size === 0) {
+				this._attributesNS.delete(namespace);
+			}
+		}
 	}
 
 	removeAttributeNS(namespace: string, name: string): void {
@@ -765,7 +825,11 @@ export class Element extends Node {
 		return new Element(this.nodeName, this.namespace);
 	}
 
-	toJSON(): { name: string; children: any[]; attributes?: { [key: string]: string } } {
+	toJSON(): {
+		name: string;
+		children: any[];
+		attributes?: { [key: string]: string };
+	} {
 		const res = super.toJSON();
 		const attr: { [key: string]: string } = {};
 		for (const [k, v] of this._attributes.entries()) {
@@ -938,7 +1002,11 @@ export class TreeWalker {
 	nodeFilter: number;
 	predicate?: (node: Node) => boolean;
 
-	constructor(root: Node, nodeFilter: number, predicate?: (node: Node) => boolean) {
+	constructor(
+		root: Node,
+		nodeFilter: number,
+		predicate?: (node: Node) => boolean
+	) {
 		this.root = root;
 		this.currentNode = root;
 		this.nodeFilter = nodeFilter;
@@ -1030,7 +1098,7 @@ export class TokenList {
 			this._get()
 				.split(" ")
 				.filter((_) => _ !== value)
-				.join(" "),
+				.join(" ")
 		);
 	}
 
@@ -1102,8 +1170,11 @@ const DOM = {
 	document,
 };
 
-export function install(target: typeof globalThis = globalThis): typeof globalThis {
+export function install(
+	target: typeof globalThis = globalThis
+): typeof globalThis {
 	return Object.assign(target, DOM);
 }
 
 export default DOM;
+// EOF
