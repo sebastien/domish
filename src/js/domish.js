@@ -226,6 +226,9 @@ export class Node {
 	// --
 	// ### Common methods
 	appendChild(node) {
+		if (node === this) {
+			throw new Error("Cannot append node to itself");
+		}
 		if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
 			for (const n of node.childNodes) {
 				this.appendChild(n);
@@ -291,6 +294,12 @@ export class Node {
 	}
 
 	replaceChild(newChild, oldChild) {
+		if (newChild === this) {
+			throw new Error("Cannot append node to itself");
+		}
+		if (oldChild.parentNode !== this) {
+			throw new Error("Old child is not what is expected");
+		}
 		const i = this.childNodes.indexOf(oldChild);
 		if (i >= 0) {
 			oldChild.parentNode = null;
@@ -401,29 +410,51 @@ export class Node {
 								? true
 								: undefined;
 					yield `<${name}`;
-					// TODO: Fix attribute serialisation
+					// Handle style attribute
+					let styleAttr = null;
 					for (let [k, v] of this._attributes.entries()) {
-						// We need to merge the style as well
 						if (k === "style") {
-							v = (v ? [v] : [])
-								.concat(
-									Object.entries(this.style).map(
-										([k, v]) =>
-											`${toCSSPropertyName(k)}: ${v}`,
-									),
-								)
-								.join(";");
-							v = v && v.length > 0 ? v : undefined;
-						}
-						if (v !== undefined) {
-							yield v === null ? ` ${k}` : ` ${k}="${v}"`;
+							styleAttr = v;
+						} else if (v && v.value !== undefined) {
+							yield v.value === null
+								? ` ${k}`
+								: ` ${k}="${v.value}"`;
 						}
 					}
+
+					// Handle style attribute with inline styles
+					if (styleAttr || Object.keys(this.style).length > 0) {
+						let styleValue = styleAttr ? styleAttr.value : "";
+						const inlineStyles = Object.entries(this.style)
+							.map(([k, v]) => `${toCSSPropertyName(k)}: ${v}`)
+							.join(";");
+						if (inlineStyles) {
+							styleValue = styleValue
+								? `${styleValue};${inlineStyles}`
+								: inlineStyles;
+						}
+						if (styleValue) {
+							yield ` style="${styleValue}"`;
+						}
+					}
+
 					for (const [ns, attrs] of this._attributesNS.entries()) {
 						for (let [k, v] of attrs.entries()) {
-							if (v !== undefined) {
-								k = ns ? `${ns}:{k}` : k;
-								yield v === null ? ` ${k}` : ` ${k}="${v}"`;
+							if (v && v.value !== undefined) {
+								// Map common namespace URIs to their prefixes
+								const prefix =
+									ns === "http://www.w3.org/1999/xlink"
+										? "xlink"
+										: ns === "http://www.w3.org/2000/svg"
+											? "svg"
+											: ns ===
+												  "http://www.w3.org/XML/1998/namespace"
+												? "xml"
+												: null;
+								const attrName = prefix ? `${prefix}:${k}` : k;
+								yield v.value === null
+									? ` ${attrName}`
+									: ` ${attrName}="${v.value}"`;
 							}
 						}
 					}
@@ -491,9 +522,12 @@ export class Node {
 	}
 
 	_attach(parentNode) {
+		if (parentNode === this) {
+			throw new Error("Cannot append node to itself");
+		}
 		if (parentNode !== this.parentNode) {
 			this._detach();
-			this.parentNode = this;
+			this.parentNode = parentNode;
 		}
 		return this;
 	}
@@ -506,9 +540,11 @@ export class Node {
 class DataSetProxy {
 	static get(target, property) {
 		// TODO: We may need to do de-camel-case
-		return typeof property === "string"
-			? target._attributes.get(`data-${property}`)
-			: target[property];
+		if (typeof property === "string") {
+			const attr = target._attributes.get(`data-${property}`);
+			return attr ? attr.value : undefined;
+		}
+		return target[property];
 	}
 }
 
@@ -522,38 +558,57 @@ export class AttributeNode extends Node {
 	}
 
 	get value() {
-		return this.ownerElement
-			? (this.namespace
-					? this.ownerElement.getAttributeNS(
-							this.namespace,
-							this.name,
-						)
-					: this.ownerElement.getAttribute(this.name)) || ""
-			: this._value || "";
+		if (this.ownerElement) {
+			if (this.namespace) {
+				const nsMap = this.ownerElement._attributesNS.get(
+					this.namespace,
+				);
+				const attr = nsMap ? nsMap.get(this.name) : null;
+				return attr ? attr._value : "";
+			} else {
+				const attr = this.ownerElement._attributes.get(this.name);
+				return attr ? attr._value : "";
+			}
+		}
+		return this._value || "";
 	}
 
 	set value(value) {
 		this._value = value;
 		if (this.ownerElement) {
-			this.namespace
-				? this.ownerElement?.setAttributeNS(
+			if (this.namespace) {
+				// For namespaced attributes, set directly in the map to avoid recursion
+				if (!this.ownerElement._attributesNS.has(this.namespace)) {
+					this.ownerElement._attributesNS.set(
 						this.namespace,
-						this.name,
-						value,
-					)
-				: this.ownerElement?.setAttribute(this.name, value);
+						new Map(),
+					);
+				}
+				this.ownerElement._attributesNS
+					.get(this.namespace)
+					.set(this.name, this);
+			} else {
+				// For regular attributes, set directly in the map to avoid recursion
+				this.ownerElement._attributes.set(this.name, this);
+			}
 		}
+	}
+
+	get nodeValue() {
+		return this.value;
+	}
+
+	setNodeValue(value) {
+		this.value = value;
 	}
 }
 
-// TODO: Should refactor attribtues to use AttirbuteNode maybe?
 export class Element extends Node {
 	constructor(name, namespace) {
 		super(name, Node.ELEMENT_NODE);
 		this.namespace = namespace;
 		this.style = {};
 		this._attributes = new Map();
-		this._attributes.set("style", undefined);
 		this._attributesNS = new Map();
 		this.classList = new TokenList(this, "class");
 		this.sheet = name === "style" ? new StyleSheet() : null;
@@ -564,83 +619,103 @@ export class Element extends Node {
 		return this.getAttribute("id");
 	}
 
-	// FIXME: This is quite inefficient
 	get attributes() {
-		return [...this._attributes.keys()]
-			.map((k) => new AttributeNode(k, null, this))
-			.concat(
-				[...this._attributesNS.entries()].reduce((r, [ns, k]) => {
-					r.push(new AttributeNode(k, ns, this));
-					return r;
-				}, []),
-			);
+		return [...this._attributes.values()].concat(
+			[...this._attributesNS.values()].flatMap((nsMap) => [
+				...nsMap.values(),
+			]),
+		);
 	}
 
-	// FIXME: This is not entirely faithful, but helps with the "template"
-	// element
 	removeAttribute(name) {
 		if (name === "style") {
 			this.style = {};
-			this._attributes.set("style", undefined);
-		} else {
-			this._attributes.delete(name);
 		}
+		this._attributes.delete(name);
 	}
 
 	removeAttributeNS(namespace, name) {
-		if (this._attribtuesNS.has(namespace)) {
+		if (this._attributesNS.has(namespace)) {
 			this._attributesNS.get(namespace).delete(name);
 		}
 	}
 
 	setAttribute(name, value) {
-		// FIXME: Handling of style attribute
-		this._attributes.set(name, `${value}`);
+		const attrNode = new AttributeNode(name, null, this);
+		attrNode.value = value;
+		this._attributes.set(name, attrNode);
 	}
 
 	setAttributeNode(node) {
 		node.ownerElement = this;
-		this._attributes.set(node.name, node.value);
+		if (node.namespace) {
+			if (!this._attributesNS.has(node.namespace)) {
+				this._attributesNS.set(node.namespace, new Map());
+			}
+			this._attributesNS.get(node.namespace).set(node.name, node);
+		} else {
+			this._attributes.set(node.name, node);
+		}
 	}
 
 	getAttributeNode(name) {
-		if (this._attributes.has(name)) {
-			return new AttributeNode(name, null, this);
-		}
-		return null;
+		return this._attributes.get(name) || null;
 	}
 
 	setAttributeNS(ns, name, value) {
 		if (!this._attributesNS.has(ns)) {
 			this._attributesNS.set(ns, new Map());
 		}
-		this._attributesNS.get(ns).set(name, value);
+		const attrNode = new AttributeNode(name, ns, this);
+		attrNode.value = value;
+		this._attributesNS.get(ns).set(name, attrNode);
 	}
 
 	hasAttribute(name) {
 		return this._attributes.has(name);
 	}
 	hasAttributeNS(namespace, name) {
-		return this._attributesNS.get(namespace)?.has(name);
+		return this._attributesNS.get(namespace)?.has(name) || false;
 	}
 
 	getAttribute(name) {
-		return this._attributes.get(name);
+		const attr = this._attributes.get(name);
+		return attr ? attr.value : null;
 	}
 
 	getAttributeNS(ns, name) {
-		return this._attributesNS.has(ns)
-			? this._attributesNS.get(ns).get(name)
-			: undefined;
+		const nsMap = this._attributesNS.get(ns);
+		if (nsMap) {
+			const attr = nsMap.get(name);
+			return attr ? attr.value : null;
+		}
+		return null;
+	}
+
+	getAttributeNodeNS(ns, name) {
+		const nsMap = this._attributesNS.get(ns);
+		return nsMap ? nsMap.get(name) || null : null;
 	}
 
 	cloneNode(deep) {
 		const res = super.cloneNode(deep);
 		for (const [k, v] of this._attributes.entries()) {
-			res._attributes.set(k, v);
+			if (v) {
+				const clonedAttr = new AttributeNode(k, null, res);
+				clonedAttr.value = v.value;
+				res._attributes.set(k, clonedAttr);
+			}
 		}
-		for (const [k, v] of this._attributesNS.entries()) {
-			res._attributesNS.set(k, new Map(v));
+		for (const [ns, attrs] of this._attributesNS.entries()) {
+			const clonedNsMap = new Map();
+			for (const [k, v] of attrs.entries()) {
+				if (v) {
+					const clonedAttr = new AttributeNode(k, ns, res);
+					clonedAttr.value = v.value;
+					clonedNsMap.set(k, clonedAttr);
+				}
+			}
+			res._attributesNS.set(ns, clonedNsMap);
 		}
 		return res;
 	}
@@ -652,7 +727,16 @@ export class Element extends Node {
 		const res = super.toJSON();
 		const attr = {};
 		for (const [k, v] of this._attributes.entries()) {
-			attr[k] = v;
+			if (v && v.value !== undefined) {
+				attr[k] = v.value;
+			}
+		}
+		for (const [ns, attrs] of this._attributesNS.entries()) {
+			for (const [k, v] of attrs.entries()) {
+				if (v && v.value !== undefined) {
+					attr[ns ? `${ns}:${k}` : k] = v.value;
+				}
+			}
 		}
 		res.attributes = attr;
 		return res;
@@ -678,6 +762,9 @@ export class TextNode extends Node {
 	_create() {
 		return new TextNode(this.data);
 	}
+	get nodeValue() {
+		return this.data;
+	}
 	toJSON() {
 		return this.data;
 	}
@@ -690,6 +777,9 @@ export class Comment extends Node {
 	}
 	_create() {
 		return new Comment(this.data);
+	}
+	get nodeValue() {
+		return this.data;
 	}
 	toJSON() {
 		return undefined;
