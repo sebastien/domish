@@ -60,6 +60,16 @@ interface Selector {
 	} | null;
 }
 
+interface Event {
+	type: string;
+	target: Node | null;
+	currentTarget: Node | null;
+	defaultPrevented: boolean;
+	preventDefault(): void;
+}
+
+type EventListener = ((event: Event) => void) | { handleEvent(event: Event): void };
+
 class Query {
 	text: string;
 	selectors: Selector[];
@@ -160,6 +170,7 @@ export class Node {
 	childNodes: Node[];
 	parentNode: Node | null;
 	data: string;
+	_eventListeners: Map<string, Set<EventListener>>;
 
 	constructor(name: string, type: number) {
 		this.nodeName = name;
@@ -167,6 +178,7 @@ export class Node {
 		this.childNodes = [];
 		this.parentNode = null;
 		this.data = "";
+		this._eventListeners = new Map();
 	}
 
 	iterWalk(callback: (node: Node) => boolean | void): void {
@@ -315,6 +327,10 @@ export class Node {
 		n.nodeType = this.nodeType;
 		n.data = this.data;
 		n.parentNode = null;
+		n._eventListeners = new Map();
+		for (const [type, listeners] of this._eventListeners.entries()) {
+			n._eventListeners.set(type, new Set(listeners));
+		}
 		n.childNodes = deep
 			? this.childNodes.map((_) => {
 					const r = _.cloneNode(deep);
@@ -379,6 +395,40 @@ export class Node {
 		newNode.parentNode = this;
 
 		return newNode;
+	}
+
+	// --
+	// ### Event methods
+
+	addEventListener(type: string, listener: EventListener): void {
+		if (!this._eventListeners.has(type)) {
+			this._eventListeners.set(type, new Set());
+		}
+		this._eventListeners.get(type)!.add(listener);
+	}
+
+	removeEventListener(type: string, listener: EventListener): void {
+		const listeners = this._eventListeners.get(type);
+		if (listeners) {
+			listeners.delete(listener);
+			if (listeners.size === 0) {
+				this._eventListeners.delete(type);
+			}
+		}
+	}
+
+	dispatchEvent(event: Event): boolean {
+		const listeners = this._eventListeners.get(event.type);
+		if (listeners) {
+			for (const listener of listeners) {
+				if (typeof listener === 'function') {
+					listener.call(this, event);
+				} else {
+					listener.handleEvent(event);
+				}
+			}
+		}
+		return !event.defaultPrevented;
 	}
 
 	// --
@@ -796,6 +846,50 @@ export class Element extends Node {
 	getAttributeNodeNS(ns: string, name: string): AttributeNode | null {
 		const nsMap = this._attributesNS.get(ns);
 		return nsMap ? nsMap.get(name) || null : null;
+	}
+
+	removeAttributeNode(attributeNode: AttributeNode): AttributeNode {
+		if (attributeNode.ownerElement !== this) {
+			throw new Error("NotFoundError: The attribute node is not owned by this element");
+		}
+		
+		if (attributeNode.namespace) {
+			const nsMap = this._attributesNS.get(attributeNode.namespace);
+			if (nsMap && nsMap.has(attributeNode.name)) {
+				nsMap.delete(attributeNode.name);
+				if (nsMap.size === 0) {
+					this._attributesNS.delete(attributeNode.namespace);
+				}
+			}
+		} else {
+			this._attributes.delete(attributeNode.name);
+		}
+		
+		attributeNode.ownerElement = null;
+		return attributeNode;
+	}
+
+	addAttributeNode(attributeNode: AttributeNode): AttributeNode | null {
+		if (attributeNode.ownerElement && attributeNode.ownerElement !== this) {
+			throw new Error("InUseAttributeError: The attribute node is already in use by another element");
+		}
+		
+		const existingNode = attributeNode.namespace 
+			? this.getAttributeNodeNS(attributeNode.namespace, attributeNode.name)
+			: this.getAttributeNode(attributeNode.name);
+		
+		attributeNode.ownerElement = this;
+		
+		if (attributeNode.namespace) {
+			if (!this._attributesNS.has(attributeNode.namespace)) {
+				this._attributesNS.set(attributeNode.namespace, new Map());
+			}
+			this._attributesNS.get(attributeNode.namespace)!.set(attributeNode.name, attributeNode);
+		} else {
+			this._attributes.set(attributeNode.name, attributeNode);
+		}
+		
+		return existingNode;
 	}
 
 	cloneNode(deep?: boolean): Element {
