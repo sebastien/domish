@@ -2,13 +2,14 @@
 // parser that can be used in both SAX/DOM style.
 
 // Main code
-let Document: any, HTML_EMPTY: any;
+
+let Document: any, _HTML_EMPTY: any;
 
 // Explicit imports at the end
 import { Document as Document_, HTML_EMPTY as HTML_EMPTY_ } from "./domish.js";
 
 Document = Document_;
-HTML_EMPTY = HTML_EMPTY_;
+_HTML_EMPTY = HTML_EMPTY_;
 
 class Fragment {
 	/** Represents a text fragment. */
@@ -21,7 +22,9 @@ class Fragment {
 		if (text) {
 			const n = text.length;
 			let match: RegExpExecArray | null;
-			while ((match = pattern.exec(text))) {
+			while (true) {
+				match = pattern.exec(text);
+				if (!match) break;
 				// Yield a fragment for unmatched text before the match
 				if (offset !== match.index) {
 					yield new MatchFragment(
@@ -33,11 +36,7 @@ class Fragment {
 				// Yield a fragment for the matched text
 				yield new MatchFragment(
 					match,
-					new Fragment(
-						text,
-						match.index,
-						match.index + match[0].length,
-					),
+					new Fragment(text, match.index, match.index + match[0].length),
 				);
 
 				offset = Math.max(offset + 1, match.index + match[0].length);
@@ -98,7 +97,12 @@ class Marker {
 	name: string | null;
 	attributes: { [key: string]: string };
 
-	constructor(type: string, fragment: Fragment, name: string | null = null, attributes: { [key: string]: string } | null = null) {
+	constructor(
+		type: string,
+		fragment: Fragment,
+		name: string | null = null,
+		attributes: { [key: string]: string } | null = null,
+	) {
 		this.type = type;
 		this.fragment = fragment;
 		this.name = name;
@@ -137,10 +141,14 @@ function* iexpandEntities(text: string): Generator<string> {
 	}
 	let match: RegExpExecArray | null = null;
 	let o = 0;
-	while ((match = RE_ENTITY.exec(text)) !== null) {
+	while (true) {
+		match = RE_ENTITY.exec(text);
+		if (match === null) {
+			break;
+		}
 		const start = match.index;
 		const end = start + match[0].length;
-		const groups = match.groups as any;
+		const groups = match.groups as unknown as Record<string, string>;
 		const { code, name } = groups;
 		if (start > o) {
 			yield text.substring(o, start);
@@ -173,14 +181,19 @@ const RE_TAG = new RegExp(
 		"(?<DOCTYPE>\\<\\!DOCTYPE\\s+(?<doctype>[^\\>]+)\\>\r?\n)|",
 		"(?<COMMENT>\\<\\!--(?<comment>([\r\n]|.)*?)--\\>)|",
 		"(?<CDATA><\\!\\[CDATA\\[(?<cdata>([\r\n]|.)*?)\\]\\]\\>)|",
-		`\\<(?<closing>/)?(?<qualname>((((?<ns>\\w+[\d\w_-]*):)?(?<name>[\d\w_\-]+)))(?<attrs>\\s+[^\\>]*)?\\s*/?\\>`,
+		`\\<(?<closing>/)?(?<qualname>((((?<ns>\\w+[dw_-]*):)?(?<name>[dw_-]+)))(?<attrs>\\s+[^\\>]*)?\\s*/?\\>`,
 	].join(""),
 	"mg",
 );
 
 const RE_ATTR_SEP = /[=\s]/;
 
-export const parseAttributes = (text: string, attributes: { [key: string]: any } = {}): { [key: string]: any } => {
+export const parseAttributes = (
+	text: string,
+
+	attributes: { [key: string]: any } = {},
+
+): { [key: string]: any } => {
 	// FIXME: We should not do trim or substring, we should
 	// just parse the string as is.
 	if (!text?.length) {
@@ -204,24 +217,24 @@ export const parseAttributes = (text: string, attributes: { [key: string]: any }
 			parseAttributes(text.substring(spaceIndex + 1).trim(), attributes);
 		}
 	} else if (m[0] === "=") {
-		const name = text.substring(0, m.index!).trim();
-		if (m.index! + m[0].length >= text.length) {
+		const name = text.substring(0, m.index ?? 0).trim();
+		if ((m.index ?? 0) + m[0].length >= text.length) {
 			attributes[name] = "";
 			return attributes;
 		}
 
-		const chr = text[m.index! + 1];
+		const chr = text[(m.index ?? 0) + 1];
 		const end =
 			chr === "'"
-				? text.indexOf("'", m.index! + 2)
+				? text.indexOf("'", (m.index ?? 0) + 2)
 				: chr === '"'
-					? text.indexOf('"', m.index! + 2)
-					: text.indexOf(" ", m.index!);
+					? text.indexOf('"', (m.index ?? 0) + 2)
+					: text.indexOf(" ", m.index ?? 0);
 
 		const value =
 			end === -1
-				? text.substring(m.index! + 1).trim()
-				: text.substring(m.index! + 1, end + 1);
+				? text.substring((m.index ?? 0) + 1).trim()
+				: text.substring((m.index ?? 0) + 1, end + 1);
 
 		if (!name) {
 			// Nothing
@@ -232,12 +245,12 @@ export const parseAttributes = (text: string, attributes: { [key: string]: any }
 		}
 		parseAttributes(text.substring(end + 1).trim(), attributes);
 	} else {
-		const name = text.substring(0, m.index!).trim();
+		const name = text.substring(0, m.index ?? 0).trim();
 		if (name) {
 			attributes[name] = null;
 		}
 		parseAttributes(
-			text.substring(m.index! + m[0].length).trim(),
+			text.substring((m.index ?? 0) + m[0].length).trim(),
 			attributes,
 		);
 	}
@@ -246,7 +259,6 @@ export const parseAttributes = (text: string, attributes: { [key: string]: any }
 };
 
 function* iterMarkers(text: string): Generator<Marker> {
-	let name: string | undefined = undefined;
 	// Use the Fragment.IterMatches function defined earlier
 	for (const { match, fragment } of Fragment.IterMatches(RE_TAG, text)) {
 		if (!match) {
@@ -259,11 +271,7 @@ function* iterMarkers(text: string): Generator<Marker> {
 			yield new Marker(MarkerType.End, fragment.slice(-3), "!CDATA");
 		} else if (match.groups?.DOCTYPE) {
 			// Handle DOCTYPE declarations
-			yield new Marker(
-				MarkerType.Start,
-				fragment.slice(0, 10),
-				"!DOCTYPE",
-			);
+			yield new Marker(MarkerType.Start, fragment.slice(0, 10), "!DOCTYPE");
 			yield new Marker(MarkerType.Content, fragment.slice(10, -2));
 			yield new Marker(MarkerType.End, fragment.slice(-2), "!DOCTYPE");
 		} else if (match.groups?.COMMENT) {
@@ -273,9 +281,16 @@ function* iterMarkers(text: string): Generator<Marker> {
 			yield new Marker(MarkerType.End, fragment.slice(-3), "!COMMENT");
 		} else {
 			// Handle regular tags
-			const { closing, qualname, ns, name, attrs } = match.groups as { closing?: string; qualname?: string; ns?: string; name?: string; attrs?: string };
+			const { closing, qualname, attrs } = match.groups as {
+				closing?: string;
+				qualname?: string;
+				ns?: string;
+				name?: string;
+				attrs?: string;
+			};
 			const is_closing = !!closing;
 			const is_self_closing = match[0].endsWith("/>");
+		
 			const attrs_map: { [key: string]: any } = {};
 			if (attrs) {
 				parseAttributes(attrs, attrs_map);
@@ -293,6 +308,7 @@ function* iterMarkers(text: string): Generator<Marker> {
 
 export function parse(text: string): Document {
 	const doc = new Document();
+
 	const stack: any[] = [doc];
 	let current = doc;
 
@@ -308,7 +324,7 @@ export function parse(text: string): Document {
 				break;
 			case MarkerType.Start:
 				{
-					const name = marker.name!;
+					const name = marker.name ?? "";
 					if (name.startsWith("!")) {
 						const comment = doc.createComment(marker.fragment.rawtext);
 						if (current) {
@@ -327,6 +343,7 @@ export function parse(text: string): Document {
 							current.appendChild(element);
 						}
 						stack.push(element);
+					
 						current = element as any;
 					}
 				}
@@ -339,7 +356,7 @@ export function parse(text: string): Document {
 				break;
 			case MarkerType.Inline:
 				{
-					const name = marker.name!;
+					const name = marker.name ?? "";
 					const element = doc.createElement(name);
 					for (const [k, v] of Object.entries(marker.attributes)) {
 						if (v !== null) {

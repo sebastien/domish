@@ -10,15 +10,12 @@
 // bits of functionality.
 
 const tags = (...tags: string[]): Map<string, boolean> =>
-	tags.reduce(
-		(r, v) => (
-			r.set(v, true),
-			r.set(v.toLowerCase(), true),
-			r.set(v.toUpperCase(), true),
-			r
-		),
-		new Map<string, boolean>()
-	);
+	tags.reduce((r, v) => {
+		r.set(v, true);
+		r.set(v.toLowerCase(), true);
+		r.set(v.toUpperCase(), true);
+		return r;
+	}, new Map<string, boolean>());
 
 const HTML_EMPTY = tags(
 	"area",
@@ -33,7 +30,7 @@ const HTML_EMPTY = tags(
 	"isindex",
 	"link",
 	"meta",
-	"param"
+	"param",
 );
 
 const HTML_NOEMPTY = tags("slot");
@@ -68,7 +65,9 @@ interface Event {
 	preventDefault(): void;
 }
 
-type EventListener = ((event: Event) => void) | { handleEvent(event: Event): void };
+type EventListener =
+	| ((event: Event) => void)
+	| { handleEvent(event: Event): void };
 
 class Query {
 	text: string;
@@ -80,22 +79,20 @@ class Query {
 		this.text = query;
 		const matches = query.match(RE_QUERY);
 		this.selectors = matches
-			? matches.map((match: any) => {
-					const attrs = match.groups?.attributes
-						? match.groups.attributes.match(RE_QUERY_ATTR)?.groups
+			?
+				matches.map((match: any) => {
+
+					const g = (match as any).groups;
+					const attrs = g?.attributes
+						? g.attributes.match(RE_QUERY_ATTR)?.groups
 						: null;
 					return {
-						type: match.groups?.attributes
-							? "@"
-							: match.groups?.type || "",
+						type: match.groups?.attributes ? "@" : match.groups?.type || "",
 						name: match.groups?.name || "",
 						attributes: attrs
 							? {
 									...attrs,
-									value:
-										attrs.value_0 ||
-										attrs.value_1 ||
-										attrs.value_2,
+									value: attrs.value_0 || attrs.value_1 || attrs.value_2,
 								}
 							: null,
 					};
@@ -105,7 +102,9 @@ class Query {
 
 	match(node: Node): boolean {
 		for (let i = 0; i < this.selectors.length; i++) {
-			const { type, name, attributes } = this.selectors[i];
+			const selector = this.selectors[i];
+			if (!selector) continue;
+			const { type, name, attributes } = selector;
 			if (node.nodeType !== Node.ELEMENT_NODE) {
 				return false;
 			}
@@ -124,7 +123,7 @@ class Query {
 					}
 					break;
 				case "#":
-					if (!((node as Element).getAttribute("id") !== name)) {
+					if ((node as Element).getAttribute("id") !== name) {
 						return false;
 					}
 					break;
@@ -138,7 +137,7 @@ class Query {
 					return true;
 				default:
 					throw new Error(
-						`Unsupported type: ${type} in ${JSON.stringify(this.selectors[i])}`
+						`Unsupported type: ${type} in ${JSON.stringify(this.selectors[i])}`,
 					);
 			}
 		}
@@ -181,8 +180,9 @@ export class Node {
 		this._eventListeners = new Map();
 	}
 
-	iterWalk(callback: (node: Node) => boolean | void): void {
+	iterWalk(callback: (node: Node) => boolean | undefined): void {
 		if (callback(this) !== false) {
+
 			this.childNodes.forEach((_) => _.iterWalk(callback));
 		}
 	}
@@ -214,11 +214,16 @@ export class Node {
 				for (const n of scope) {
 					n.iterWalk((_) => {
 						if (q.match(_)) matched.push(_);
+						// We need to return boolean | undefined here to satisfy the type
+						// Although iterWalk in our implementation only checks for `false`
+						// to stop iteration, the type definition expects a specific return type.
+						// Returning undefined is safe as it's not false.
+						return undefined;
 					});
 				}
 				scope = matched;
 			}
-			if (scope.length == 0) {
+			if (scope.length === 0) {
 				return scope;
 			}
 		}
@@ -236,13 +241,13 @@ export class Node {
 		return this.childNodes.filter((_) => _.nodeType === Node.ELEMENT_NODE);
 	}
 
-	get firstChild(): Node | undefined {
-		return this.childNodes[0];
+	get firstChild(): Node | null {
+		return this.childNodes[0] ?? null;
 	}
 
 	get lastChild(): Node | null {
 		const n = this.childNodes.length;
-		return n > 0 ? this.childNodes[n - 1] : null;
+		return n > 0 ? (this.childNodes[n - 1] ?? null) : null;
 	}
 
 	get nextSibling(): Node | null {
@@ -301,12 +306,11 @@ export class Node {
 	after(...nodes: Node[]): Node {
 		const parent = this.parentNode;
 		const next = this.nextSibling;
-		for (let i = 0; i < nodes.length; i++) {
-			const node = nodes[i];
+		for (const node of nodes) {
 			if (next) {
-				parent!.insertBefore(node, next);
+				if (parent) parent.insertBefore(node, next);
 			} else {
-				parent!.appendChild(node);
+				if (parent) parent.appendChild(node);
 			}
 		}
 		return this;
@@ -314,9 +318,8 @@ export class Node {
 
 	before(...nodes: Node[]): Node {
 		const parent = this.parentNode;
-		for (let i = 0; i < nodes.length; i++) {
-			const node = nodes[i];
-			parent!.insertBefore(node, this);
+		for (const node of nodes) {
+			if (parent) parent.insertBefore(node, this);
 		}
 		return this;
 	}
@@ -344,9 +347,11 @@ export class Node {
 	removeChild(child: Node): Node {
 		const i = this.childNodes.indexOf(child);
 		if (i >= 0) {
-			const child = this.childNodes[i];
-			this.childNodes.splice(i, 1);
-			child.parentNode = null;
+			const c = this.childNodes[i];
+			if (c) {
+				this.childNodes.splice(i, 1);
+				c.parentNode = null;
+			}
 		}
 		return this;
 	}
@@ -371,7 +376,7 @@ export class Node {
 		const i = this.childNodes.indexOf(referenceNode);
 		if (i < 0) {
 			throw new Error(
-				"NotFoundError: The reference node is not a child of this node"
+				"NotFoundError: The reference node is not a child of this node",
 			);
 		}
 
@@ -404,7 +409,7 @@ export class Node {
 		if (!this._eventListeners.has(type)) {
 			this._eventListeners.set(type, new Set());
 		}
-		this._eventListeners.get(type)!.add(listener);
+		this._eventListeners.get(type)?.add(listener);
 	}
 
 	removeEventListener(type: string, listener: EventListener): void {
@@ -421,7 +426,7 @@ export class Node {
 		const listeners = this._eventListeners.get(event.type);
 		if (listeners) {
 			for (const listener of listeners) {
-				if (typeof listener === 'function') {
+				if (typeof listener === "function") {
 					listener.call(this, event);
 				} else {
 					listener.handleEvent(event);
@@ -494,9 +499,8 @@ export class Node {
 	}
 
 	*iterXMLLines(options?: { [key: string]: any }): Generator<string> {
-		const has_comments =
-			options && options.comments === false ? false : true;
-		const has_doctype = options && options.doctype === false ? false : true;
+		const has_comments = !(options && options.comments === false);
+		const has_doctype = !(options && options.doctype === false);
 
 		switch (this.nodeType) {
 			case Node.DOCUMENT_NODE:
@@ -534,13 +538,11 @@ export class Node {
 					yield `<${name}`;
 					// Handle style attribute
 					let styleAttr: AttributeNode | null = null;
-					for (let [k, v] of element._attributes.entries()) {
+					for (const [k, v] of element._attributes.entries()) {
 						if (k === "style") {
 							styleAttr = v;
 						} else if (v && v.value !== undefined) {
-							yield v.value === null
-								? ` ${k}`
-								: ` ${k}="${v.value || ""}"`;
+							yield v.value === null ? ` ${k}` : ` ${k}="${v.value || ""}"`;
 						}
 					}
 
@@ -548,10 +550,7 @@ export class Node {
 					if (styleAttr || Object.keys(element.style).length > 0) {
 						let styleValue = styleAttr ? styleAttr.value : "";
 						const inlineStyles = Object.keys(element.style)
-							.map(
-								(k) =>
-									`${toCSSPropertyName(k)}: ${element.style[k]}`
-							)
+							.map((k) => `${toCSSPropertyName(k)}: ${element.style[k]}`)
 							.join(";");
 						if (inlineStyles) {
 							styleValue = styleValue
@@ -564,7 +563,7 @@ export class Node {
 					}
 
 					for (const [ns, attrs] of element._attributesNS.entries()) {
-						for (let [k, v] of attrs.entries()) {
+						for (const [k, v] of attrs.entries()) {
 							if (v && v.value !== undefined) {
 								// Map common namespace URIs to their prefixes
 								const prefix =
@@ -572,8 +571,7 @@ export class Node {
 										? "xlink"
 										: ns === "http://www.w3.org/2000/svg"
 											? "svg"
-											: ns ===
-													"http://www.w3.org/XML/1998/namespace"
+											: ns === "http://www.w3.org/XML/1998/namespace"
 												? "xml"
 												: null;
 								const attrName = prefix ? `${prefix}:${k}` : k;
@@ -583,9 +581,9 @@ export class Node {
 							}
 						}
 					}
-					if (options && options.html && empty === true) {
+					if (options?.html && empty === true) {
 						yield " >";
-					} else if (this.childNodes.length == 0 && empty !== false) {
+					} else if (this.childNodes.length === 0 && empty !== false) {
 						yield " />";
 					} else {
 						yield ">";
@@ -607,9 +605,7 @@ export class Node {
 				break;
 			case Node.COMMENT_NODE:
 				if (has_comments) {
-					yield `<!--${
-						this.data ? this.data.replace(/>/g, "&gt;") : ""
-					}-->`;
+					yield `<!--${this.data ? this.data.replace(/>/g, "&gt;") : ""}-->`;
 				}
 				break;
 		}
@@ -622,6 +618,7 @@ export class Node {
 	toHTML(options: { [key: string]: any } = {}): string {
 		return this.toXMLLines({ ...options, html: true }).join("");
 	}
+
 
 	toJSON(): any {
 		return {
@@ -659,13 +656,16 @@ export class Node {
 	}
 }
 
+
 class DataSetProxy {
+
 	static get(target: Element, property: string | symbol): any {
 		// TODO: We may need to do de-camel-case
 		if (typeof property === "string") {
 			const attr = target._attributes.get(`data-${property}`);
 			return attr ? attr.value : undefined;
 		}
+
 		return (target as any)[property];
 	}
 }
@@ -679,7 +679,7 @@ export class AttributeNode extends Node {
 	constructor(
 		name: string,
 		namespace: string | null,
-		ownerElement: Element | null
+		ownerElement: Element | null,
 	) {
 		super(name, Node.ATTRIBUTE_NODE);
 		this.name = name;
@@ -691,9 +691,7 @@ export class AttributeNode extends Node {
 	get value(): string {
 		if (this.ownerElement) {
 			if (this.namespace) {
-				const nsMap = this.ownerElement._attributesNS.get(
-					this.namespace
-				);
+				const nsMap = this.ownerElement._attributesNS.get(this.namespace);
 				const attr = nsMap ? nsMap.get(this.name) : null;
 				return attr ? attr._value || "" : "";
 			} else {
@@ -710,14 +708,11 @@ export class AttributeNode extends Node {
 			if (this.namespace) {
 				// For namespaced attributes, set directly in the map to avoid recursion
 				if (!this.ownerElement._attributesNS.has(this.namespace)) {
-					this.ownerElement._attributesNS.set(
-						this.namespace,
-						new Map()
-					);
+					this.ownerElement._attributesNS.set(this.namespace, new Map());
 				}
 				this.ownerElement._attributesNS
-					.get(this.namespace)!
-					.set(this.name, this);
+					.get(this.namespace)
+					?.set(this.name, this);
 			} else {
 				// For regular attributes, set directly in the map to avoid recursion
 				this.ownerElement._attributes.set(this.name, this);
@@ -725,7 +720,7 @@ export class AttributeNode extends Node {
 		}
 	}
 
-	get nodeValue(): string {
+	override get nodeValue(): string {
 		return this.value;
 	}
 
@@ -741,6 +736,7 @@ export class Element extends Node {
 	_attributesNS: Map<string, Map<string, AttributeNode>>;
 	classList: TokenList;
 	sheet: StyleSheet | null;
+
 	dataset: any;
 
 	constructor(name: string, namespace: string | null = null) {
@@ -751,6 +747,7 @@ export class Element extends Node {
 		this._attributesNS = new Map();
 		this.classList = new TokenList(this, "class");
 		this.sheet = name === "style" ? new StyleSheet() : null;
+
 		this.dataset = new Proxy(this, DataSetProxy as any);
 	}
 
@@ -786,7 +783,7 @@ export class Element extends Node {
 
 	removeAttributeNS(namespace: string, name: string): void {
 		if (this._attributesNS.has(namespace)) {
-			this._attributesNS.get(namespace)!.delete(name);
+			this._attributesNS.get(namespace)?.delete(name);
 		}
 	}
 
@@ -802,7 +799,7 @@ export class Element extends Node {
 			if (!this._attributesNS.has(node.namespace)) {
 				this._attributesNS.set(node.namespace, new Map());
 			}
-			this._attributesNS.get(node.namespace)!.set(node.name, node);
+			this._attributesNS.get(node.namespace)?.set(node.name, node);
 		} else {
 			this._attributes.set(node.name, node);
 		}
@@ -818,7 +815,7 @@ export class Element extends Node {
 		}
 		const attrNode = new AttributeNode(name, ns, this);
 		attrNode.value = value;
-		this._attributesNS.get(ns)!.set(name, attrNode);
+		this._attributesNS.get(ns)?.set(name, attrNode);
 	}
 
 	hasAttribute(name: string): boolean {
@@ -850,12 +847,14 @@ export class Element extends Node {
 
 	removeAttributeNode(attributeNode: AttributeNode): AttributeNode {
 		if (attributeNode.ownerElement !== this) {
-			throw new Error("NotFoundError: The attribute node is not owned by this element");
+			throw new Error(
+				"NotFoundError: The attribute node is not owned by this element",
+			);
 		}
-		
+
 		if (attributeNode.namespace) {
 			const nsMap = this._attributesNS.get(attributeNode.namespace);
-			if (nsMap && nsMap.has(attributeNode.name)) {
+			if (nsMap?.has(attributeNode.name)) {
 				nsMap.delete(attributeNode.name);
 				if (nsMap.size === 0) {
 					this._attributesNS.delete(attributeNode.namespace);
@@ -864,35 +863,39 @@ export class Element extends Node {
 		} else {
 			this._attributes.delete(attributeNode.name);
 		}
-		
+
 		attributeNode.ownerElement = null;
 		return attributeNode;
 	}
 
 	addAttributeNode(attributeNode: AttributeNode): AttributeNode | null {
 		if (attributeNode.ownerElement && attributeNode.ownerElement !== this) {
-			throw new Error("InUseAttributeError: The attribute node is already in use by another element");
+			throw new Error(
+				"InUseAttributeError: The attribute node is already in use by another element",
+			);
 		}
-		
-		const existingNode = attributeNode.namespace 
+
+		const existingNode = attributeNode.namespace
 			? this.getAttributeNodeNS(attributeNode.namespace, attributeNode.name)
 			: this.getAttributeNode(attributeNode.name);
-		
+
 		attributeNode.ownerElement = this;
-		
+
 		if (attributeNode.namespace) {
 			if (!this._attributesNS.has(attributeNode.namespace)) {
 				this._attributesNS.set(attributeNode.namespace, new Map());
 			}
-			this._attributesNS.get(attributeNode.namespace)!.set(attributeNode.name, attributeNode);
+			this._attributesNS
+				.get(attributeNode.namespace)
+				?.set(attributeNode.name, attributeNode);
 		} else {
 			this._attributes.set(attributeNode.name, attributeNode);
 		}
-		
+
 		return existingNode;
 	}
 
-	cloneNode(deep?: boolean): Element {
+	override cloneNode(deep?: boolean): Element {
 		const res = super.cloneNode(deep) as Element;
 		for (const [k, v] of this._attributes.entries()) {
 			if (v) {
@@ -915,12 +918,13 @@ export class Element extends Node {
 		return res;
 	}
 
-	_create(): Element {
+	override _create(): Element {
 		return new Element(this.nodeName, this.namespace);
 	}
 
-	toJSON(): {
+	override toJSON(): {
 		name: string;
+
 		children: any[];
 		attributes?: { [key: string]: string };
 	} {
@@ -951,7 +955,7 @@ export class TemplateElement extends Element {
 		this.content = new DocumentFragment();
 	}
 
-	appendChild(node: Node): TemplateElement {
+	override appendChild(node: Node): TemplateElement {
 		this.content.appendChild(node);
 		return this;
 	}
@@ -963,15 +967,15 @@ export class TextNode extends Node {
 		this.data = data;
 	}
 
-	_create(): Node {
+	override _create(): Node {
 		return new TextNode(this.data);
 	}
 
-	get nodeValue(): string {
+	override get nodeValue(): string {
 		return this.data;
 	}
 
-	toJSON(): string {
+	override toJSON(): string {
 		return this.data;
 	}
 }
@@ -982,15 +986,15 @@ export class Comment extends Node {
 		this.data = data;
 	}
 
-	_create(): Node {
+	override _create(): Node {
 		return new Comment(this.data);
 	}
 
-	get nodeValue(): string {
+	override get nodeValue(): string {
 		return this.data;
 	}
 
-	toJSON(): undefined {
+	override toJSON(): undefined {
 		return undefined;
 	}
 }
@@ -1008,19 +1012,19 @@ export class Document extends Node {
 	constructor(nodes?: Node[]) {
 		super("#document", Node.DOCUMENT_NODE);
 		this.body = new Element("body");
-		this._elements = new Array();
+		this._elements = [];
 		// Non standard
 		if (nodes) {
 			for (const node of nodes) {
-				node && this.appendChild(node);
+				if (node) this.appendChild(node);
 			}
 		}
 	}
 
 	getElementById(id: string): Element | null {
-		for (let i in this._elements) {
+		for (const i in this._elements) {
 			const n = this._elements[i];
-			if (n.id === id) {
+			if (n && n.id === id) {
 				return n;
 			}
 		}
@@ -1069,10 +1073,11 @@ export class Document extends Node {
 		return element;
 	}
 
-	_create(): Document {
+	override _create(): Document {
 		return new Document();
 	}
 }
+
 
 export class NodeFilter {
 	static SHOW_ALL = 4294967295;
@@ -1099,7 +1104,7 @@ export class TreeWalker {
 	constructor(
 		root: Node,
 		nodeFilter: number,
-		predicate?: (node: Node) => boolean
+		predicate?: (node: Node) => boolean,
 	) {
 		this.root = root;
 		this.currentNode = root;
@@ -1111,16 +1116,16 @@ export class TreeWalker {
 	_nextNode(node: Node | null): Node | null {
 		if (!node) {
 			return null;
-		} else if (node.childNodes) {
-			return node.childNodes[0];
+		} else if (node.childNodes && node.childNodes.length > 0) {
+			return node.childNodes[0] ?? null;
 		} else if (node.nextSibling) {
 			return node.nextSibling;
 		} else {
-			let node: Node | null = this.currentNode.parentNode;
-			while (node && node.parentNode) {
-				node = node.parentNode;
-				if (node.nextSibling) {
-					return node.nextSibling;
+			let n: Node | null = this.currentNode.parentNode;
+			while (n?.parentNode) {
+				n = n.parentNode;
+				if (n.nextSibling) {
+					return n.nextSibling;
 				}
 			}
 			return null;
@@ -1157,7 +1162,7 @@ export class TreeWalker {
 		while (next && !this._acceptNode(next)) {
 			next = this._nextNode(next);
 		}
-		this.currentNode = next!;
+		this.currentNode = next as Node;
 		return next;
 	}
 }
@@ -1192,14 +1197,18 @@ export class TokenList {
 			this._get()
 				.split(" ")
 				.filter((_) => _ !== value)
-				.join(" ")
+				.join(" "),
 		);
 	}
 
 	toggle(value: string): boolean {
-		return this.contains(value)
-			? (this.remove(value), false)
-			: (this.add(value), true);
+		if (this.contains(value)) {
+			this.remove(value);
+			return false;
+		} else {
+			this.add(value);
+			return true;
+		}
 	}
 
 	_get(): string {
@@ -1233,6 +1242,7 @@ const toCSSPropertyName = (name: string): string => {
 	const property = /[A-Za-z][a-z]*/g;
 	const res: string[] = [];
 	let match: RegExpExecArray | null = null;
+
 	while ((match = property.exec(name)) !== null) {
 		res.push(match[0].toLowerCase());
 	}
@@ -1253,10 +1263,13 @@ const toCSSPropertyName = (name: string): string => {
 export const NodeList = Array;
 export const StyleSheetList = Array;
 export const document = new Document();
+// Alias HTMLElement to Element for compatibility
+export const HTMLElement = Element;
 
 const DOM = {
 	Node,
 	Element,
+	HTMLElement,
 	Document,
 	NodeList,
 	NodeFilter,
@@ -1265,7 +1278,7 @@ const DOM = {
 };
 
 export function install(
-	target: typeof globalThis = globalThis
+	target: typeof globalThis = globalThis,
 ): typeof globalThis {
 	return Object.assign(target, DOM);
 }

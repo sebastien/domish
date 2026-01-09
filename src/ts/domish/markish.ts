@@ -10,19 +10,21 @@ function strip(text: string): string {
 	return text.replace(/\s+/g, " ").trim();
 }
 
+
 function derive(object: any, data: any = {}): any {
 	return Object.assign(Object.create(object), data);
 }
 
+
 function* imarkdown(node: any, context: any = {}): Generator<any> {
 	if (!node) {
 		// Nothing
-	} else if (node instanceof Array) {
+	} else if (Array.isArray(node)) {
 		for (const _ of node) {
 			yield* imarkdown(_, context);
 		}
 	} else {
-		let suffix: string | undefined = undefined;
+		let suffix: string | undefined;
 		let children = node.childNodes;
 		const name = (node.nodeName ?? "").toLowerCase();
 		const prefix = Array((context?.indent ?? 0) + 1).join("  ");
@@ -48,12 +50,13 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 						yield LineBreak;
 						suffix = "\n";
 						break;
-					case "li":
+					case "li": {
 						const is_ol = context?.container === "ol";
 						const index = is_ol ? `${context.index + 1}.` : "-";
 						yield `${prefix}${index} `;
 						context = derive(context, { index: context.index + 1 });
 						break;
+					}
 					case "p":
 						yield LineBreak;
 						suffix = "\n";
@@ -147,13 +150,14 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 					yield suffix;
 				}
 				break;
-			case node.constructor.TEXT_NODE:
+			case node.constructor.TEXT_NODE: {
 				const text = strip(node.textContent);
 				if (text) {
 					yield text;
 					yield Space;
 				}
 				break;
+			}
 			case node.constructor.COMMENT_NODE:
 				// Skip comments
 				break;
@@ -161,10 +165,12 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 	}
 }
 
+
 export function markdown(node: any): string {
 	const res: string[] = [];
-	let last: any = undefined;
-	let lastType: any = undefined;
+	let last: unknown;
+
+	let lastType: unknown;
 	for (const _ of imarkdown(node)) {
 		if (_ === LineBreak) {
 			res.push("\n");
@@ -179,7 +185,10 @@ export function markdown(node: any): string {
 		}
 		last = _;
 	}
-	return res.join("").replace(/\n{3,}/g, "\n\n").trim();
+	return res
+		.join("")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
 }
 
 export default { markdown };

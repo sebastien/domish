@@ -1,5 +1,8 @@
 // Main code
-let DOM: any, XML: any;
+
+let DOM: any;
+
+let XML: any;
 
 export default Object.assign(globalThis, { ...DOM, ...XML });
 
