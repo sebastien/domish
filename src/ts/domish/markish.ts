@@ -10,11 +10,9 @@ function strip(text: string): string {
 	return text.replace(/\s+/g, " ").trim();
 }
 
-
 function derive(object: any, data: any = {}): any {
 	return Object.assign(Object.create(object), data);
 }
-
 
 function* imarkdown(node: any, context: any = {}): Generator<any> {
 	if (!node) {
@@ -165,16 +163,15 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 	}
 }
 
-
 export function markdown(node: any): string {
 	const res: string[] = [];
 	let last: unknown;
 
-	let lastType: unknown;
+	let _lastType: unknown;
 	for (const _ of imarkdown(node)) {
 		if (_ === LineBreak) {
 			res.push("\n");
-			lastType = LineBreak;
+			_lastType = LineBreak;
 		} else if (_ === Space) {
 			// Skip space if last was space or linebreak
 			if (last !== Space && last !== LineBreak && last !== "\n") {

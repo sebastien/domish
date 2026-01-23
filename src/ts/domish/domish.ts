@@ -79,9 +79,7 @@ class Query {
 		this.text = query;
 		const matches = query.match(RE_QUERY);
 		this.selectors = matches
-			?
-				matches.map((match: any) => {
-
+			? matches.map((match: any) => {
 					const g = (match as any).groups;
 					const attrs = g?.attributes
 						? g.attributes.match(RE_QUERY_ATTR)?.groups
@@ -182,8 +180,9 @@ export class Node {
 
 	iterWalk(callback: (node: Node) => boolean | undefined): void {
 		if (callback(this) !== false) {
-
-			this.childNodes.forEach((_) => _.iterWalk(callback));
+			this.childNodes.forEach((_) => {
+				_.iterWalk(callback);
+			});
 		}
 	}
 
@@ -619,7 +618,6 @@ export class Node {
 		return this.toXMLLines({ ...options, html: true }).join("");
 	}
 
-
 	toJSON(): any {
 		return {
 			name: this.nodeName,
@@ -656,18 +654,13 @@ export class Node {
 	}
 }
 
-
-class DataSetProxy {
-
-	static get(target: Element, property: string | symbol): any {
-		// TODO: We may need to do de-camel-case
-		if (typeof property === "string") {
-			const attr = target._attributes.get(`data-${property}`);
-			return attr ? attr.value : undefined;
-		}
-
-		return (target as any)[property];
+function getDataSet(target: Element, property: string | symbol): any {
+	// TODO: We may need to do de-camel-case
+	if (typeof property === "string") {
+		const attr = target._attributes.get(`data-${property}`);
+		return attr ? attr.value : undefined;
 	}
+	return (target as any)[property];
 }
 
 export class AttributeNode extends Node {
@@ -748,7 +741,7 @@ export class Element extends Node {
 		this.classList = new TokenList(this, "class");
 		this.sheet = name === "style" ? new StyleSheet() : null;
 
-		this.dataset = new Proxy(this, DataSetProxy as any);
+		this.dataset = new Proxy(this, { get: getDataSet });
 	}
 
 	get id(): string | null {
@@ -1078,22 +1071,21 @@ export class Document extends Node {
 	}
 }
 
-
-export class NodeFilter {
-	static SHOW_ALL = 4294967295;
-	static SHOW_ATTRIBUTE = 2;
-	static SHOW_CDATA_SECTION = 8;
-	static SHOW_COMMENT = 128;
-	static SHOW_DOCUMENT = 256;
-	static SHOW_DOCUMENT_FRAGMENT = 1024;
-	static SHOW_DOCUMENT_TYPE = 512;
-	static SHOW_ELEMENT = 1;
-	static SHOW_ENTITY_REFERENCE = 16;
-	static SHOW_ENTITY = 32;
-	static SHOW_PROCESSING = 64;
-	static SHOW_NOTATION = 2048;
-	static SHOW_TEXT = 4;
-}
+export const NodeFilter = {
+	SHOW_ALL: 4294967295,
+	SHOW_ATTRIBUTE: 2,
+	SHOW_CDATA_SECTION: 8,
+	SHOW_COMMENT: 128,
+	SHOW_DOCUMENT: 256,
+	SHOW_DOCUMENT_FRAGMENT: 1024,
+	SHOW_DOCUMENT_TYPE: 512,
+	SHOW_ELEMENT: 1,
+	SHOW_ENTITY_REFERENCE: 16,
+	SHOW_ENTITY: 32,
+	SHOW_PROCESSING: 64,
+	SHOW_NOTATION: 2048,
+	SHOW_TEXT: 4,
+};
 
 export class TreeWalker {
 	root: Node;
@@ -1243,9 +1235,13 @@ const toCSSPropertyName = (name: string): string => {
 	const res: string[] = [];
 	let match: RegExpExecArray | null = null;
 
-	while ((match = property.exec(name)) !== null) {
-		res.push(match[0].toLowerCase());
-	}
+	do {
+		match = property.exec(name);
+		if (match !== null) {
+			res.push(match[0].toLowerCase());
+		}
+	} while (match !== null);
+
 	return res.join("-");
 };
 

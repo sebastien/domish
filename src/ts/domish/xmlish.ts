@@ -192,7 +192,6 @@ export const parseAttributes = (
 	text: string,
 
 	attributes: { [key: string]: any } = {},
-
 ): { [key: string]: any } => {
 	// FIXME: We should not do trim or substring, we should
 	// just parse the string as is.
@@ -290,7 +289,7 @@ function* iterMarkers(text: string): Generator<Marker> {
 			};
 			const is_closing = !!closing;
 			const is_self_closing = match[0].endsWith("/>");
-		
+
 			const attrs_map: { [key: string]: any } = {};
 			if (attrs) {
 				parseAttributes(attrs, attrs_map);
@@ -343,7 +342,7 @@ export function parse(text: string): Document {
 							current.appendChild(element);
 						}
 						stack.push(element);
-					
+
 						current = element as any;
 					}
 				}
