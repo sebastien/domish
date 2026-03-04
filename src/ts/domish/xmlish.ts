@@ -1,16 +1,16 @@
 // This is a Bard-assisted port of my Python's XMLish module. It's a simple HTML/XML
 // parser that can be used in both SAX/DOM style.
 
+// Explicit imports at the top to avoid temporal dead zone issues
+import { Document } from "./domish.js";
+
+// HTML void/empty elements that don't need closing tags
+const HTML_VOID_ELEMENTS = new Set([
+	"area", "base", "basefont", "br", "col", "frame", "hr", "img", "input",
+	"isindex", "link", "meta", "param"
+]);
+
 // Main code
-
-let Document: any, _HTML_EMPTY: any;
-
-// Explicit imports at the end
-import { Document as Document_, HTML_EMPTY as HTML_EMPTY_ } from "./domish.js";
-
-Document = Document_;
-_HTML_EMPTY = HTML_EMPTY_;
-
 class Fragment {
 	/** Represents a text fragment. */
 	source: string;
@@ -27,10 +27,7 @@ class Fragment {
 				if (!match) break;
 				// Yield a fragment for unmatched text before the match
 				if (offset !== match.index) {
-					yield new MatchFragment(
-						null,
-						new Fragment(text, offset, match.index),
-					);
+					yield new MatchFragment(null, new Fragment(text, offset, match.index));
 				}
 
 				// Yield a fragment for the matched text
@@ -139,7 +136,7 @@ function* iexpandEntities(text: string): Generator<string> {
 		yield text;
 		return;
 	}
-	let match: RegExpExecArray | null = null;
+	let match: RegExpExecArray | null;
 	let o = 0;
 	while (true) {
 		match = RE_ENTITY.exec(text);
@@ -158,9 +155,7 @@ function* iexpandEntities(text: string): Generator<string> {
 		} else {
 			const c = Number(code);
 			// Invalid code point → leave entity as-is
-			yield !Number.isFinite(c) || c < 0x0 || c > 0x10ffff
-				? match[0]
-				: String.fromCodePoint(c);
+			yield !Number.isFinite(c) || c < 0x0 || c > 0x10ffff ? match[0] : String.fromCodePoint(c);
 		}
 		o = end;
 	}
@@ -178,17 +173,17 @@ function expandEntities(text: string): string {
 
 const RE_TAG = new RegExp(
 	[
-		"(?<DOCTYPE>\\<\\!DOCTYPE\\s+(?<doctype>[^\\>]+)\\>\r?\n)|",
-		"(?<COMMENT>\\<\\!--(?<comment>([\r\n]|.)*?)--\\>)|",
-		"(?<CDATA><\\!\\[CDATA\\[(?<cdata>([\r\n]|.)*?)\\]\\]\\>)|",
-		`\\<(?<closing>/)?(?<qualname>((((?<ns>\\w+[dw_-]*):)?(?<name>[dw_-]+)))(?<attrs>\\s+[^\\>]*)?\\s*/?\\>`,
+		"(?<DOCTYPE>\\<!DOCTYPE\\s+(?<doctype>[^>]+)>\\r?\\n)|",
+		"(?<COMMENT>\\<!--(?<comment>([\\r\\n]|.)*?)-->)|",
+		"(?<CDATA><!\\[CDATA\\[(?<cdata>([\\r\\n]|.)*?)\\]\\]>)|",
+		`\\<(?<closing>/)?(?<qualname>(?:(?:(?<ns>\\w+[\\w_-]*):)?(?<name>[\\w_-]+)))(?<attrs>\\s+[^>]*)?\\s*/?\\>`,
 	].join(""),
 	"mg",
 );
 
 const RE_ATTR_SEP = /[=\s]/;
 
-export const parseAttributes = (
+const parseAttributes = (
 	text: string,
 
 	attributes: { [key: string]: any } = {},
@@ -248,10 +243,7 @@ export const parseAttributes = (
 		if (name) {
 			attributes[name] = null;
 		}
-		parseAttributes(
-			text.substring((m.index ?? 0) + m[0].length).trim(),
-			attributes,
-		);
+		parseAttributes(text.substring((m.index ?? 0) + m[0].length).trim(), attributes);
 	}
 
 	return attributes;
@@ -289,6 +281,7 @@ function* iterMarkers(text: string): Generator<Marker> {
 			};
 			const is_closing = !!closing;
 			const is_self_closing = match[0].endsWith("/>");
+			const is_void_element = HTML_VOID_ELEMENTS.has((qualname || "").toLowerCase());
 
 			const attrs_map: { [key: string]: any } = {};
 			if (attrs) {
@@ -296,7 +289,7 @@ function* iterMarkers(text: string): Generator<Marker> {
 			}
 			if (is_closing) {
 				yield new Marker(MarkerType.End, fragment, qualname, attrs_map);
-			} else if (is_self_closing) {
+			} else if (is_self_closing || is_void_element) {
 				yield new Marker(MarkerType.Inline, fragment, qualname, attrs_map);
 			} else {
 				yield new Marker(MarkerType.Start, fragment, qualname, attrs_map);
@@ -305,13 +298,19 @@ function* iterMarkers(text: string): Generator<Marker> {
 	}
 }
 
-export function parse(text: string): Document {
+function parse(text: string): Document {
 	const doc = new Document();
 
-	const stack: any[] = [doc];
-	let current = doc;
+	const stack: any[] = [doc.body];
+	let current = doc.body;
+	let debugCount = 0;
 
 	for (const marker of iterMarkers(text)) {
+		debugCount++;
+		// DEBUG - disabled
+		// if (debugCount <= 10) {
+		// 	console.error(`Marker ${debugCount}: type=${marker.type}, name=${marker.name}, text=${marker.fragment?.rawtext?.substring(0, 20)}`);
+		// }
 		switch (marker.type) {
 			case MarkerType.Content:
 				if (current) {
@@ -321,10 +320,12 @@ export function parse(text: string): Document {
 					}
 				}
 				break;
-			case MarkerType.Start:
-				{
-					const name = marker.name ?? "";
-					if (name.startsWith("!")) {
+		case MarkerType.Start:
+			{
+				const name = marker.name ?? "";
+				// DEBUG - disabled
+				// console.error(`  Start ${name}: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
+				if (name.startsWith("!")) {
 						const comment = doc.createComment(marker.fragment.rawtext);
 						if (current) {
 							current.appendChild(comment);
@@ -338,21 +339,29 @@ export function parse(text: string): Document {
 								element.setAttribute(k, "");
 							}
 						}
-						if (current) {
-							current.appendChild(element);
-						}
-						stack.push(element);
+				if (current) {
+					// DEBUG - disabled
+					// console.error(`  Appending ${name} to ${current.nodeName}`);
+					current.appendChild(element);
+				}
+				stack.push(element);
 
-						current = element as any;
+				current = element as any;
+				// DEBUG - disabled
+				// console.error(`  After push: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
 					}
 				}
 				break;
-			case MarkerType.End:
-				if (stack.length > 1) {
-					stack.pop();
-					current = stack[stack.length - 1];
-				}
-				break;
+		case MarkerType.End:
+			// DEBUG - disabled
+			// console.error(`  End ${marker.name}: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
+			if (stack.length > 1) {
+				stack.pop();
+				current = stack[stack.length - 1];
+				// DEBUG - disabled
+				// console.error(`  After pop: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
+			}
+			break;
 			case MarkerType.Inline:
 				{
 					const name = marker.name ?? "";
@@ -375,4 +384,5 @@ export function parse(text: string): Document {
 	return doc;
 }
 
+export { parse, parseAttributes };
 export default { parse, parseAttributes };

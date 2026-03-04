@@ -35,12 +35,9 @@ const HTML_EMPTY = tags(
 
 const HTML_NOEMPTY = tags("slot");
 
-export { HTML_EMPTY };
-
 //
 // ### Query Support
-const RE_QUERY =
-	/((?<type>[.#]?)(?<name>[\w\d_-]+))|(\[(?<attributes>[^\]]+)\])/g;
+const RE_QUERY = /((?<type>[.#]?)(?<name>[\w\d_-]+))|(\[(?<attributes>[^\]]+)\])/g;
 const RE_QUERY_ATTR =
 	/^(?<name>\w+)((?<operator>[~|^$*]?=)("(?<value_0>[^"]+)"|'(?<value_1>[^']+)'|(?<value_2>[^\]]+)))?$/;
 
@@ -65,9 +62,7 @@ interface Event {
 	preventDefault(): void;
 }
 
-type EventListener =
-	| ((event: Event) => void)
-	| { handleEvent(event: Event): void };
+type EventListener = ((event: Event) => void) | { handleEvent(event: Event): void };
 
 class Query {
 	text: string;
@@ -81,9 +76,7 @@ class Query {
 		this.selectors = matches
 			? matches.map((match: any) => {
 					const g = (match as any).groups;
-					const attrs = g?.attributes
-						? g.attributes.match(RE_QUERY_ATTR)?.groups
-						: null;
+					const attrs = g?.attributes ? g.attributes.match(RE_QUERY_ATTR)?.groups : null;
 					return {
 						type: match.groups?.attributes ? "@" : match.groups?.type || "",
 						name: match.groups?.name || "",
@@ -108,10 +101,7 @@ class Query {
 			}
 			switch (type) {
 				case "":
-					if (
-						node.nodeName !== name &&
-						node.nodeName.toLowerCase() !== name.toLowerCase()
-					) {
+					if (node.nodeName !== name && node.nodeName.toLowerCase() !== name.toLowerCase()) {
 						return false;
 					}
 					break;
@@ -134,9 +124,7 @@ class Query {
 					}
 					return true;
 				default:
-					throw new Error(
-						`Unsupported type: ${type} in ${JSON.stringify(this.selectors[i])}`,
-					);
+					throw new Error(`Unsupported type: ${type} in ${JSON.stringify(this.selectors[i])}`);
 			}
 		}
 		return true;
@@ -147,7 +135,7 @@ class Query {
 // ## The Node class
 //
 // This is the main class that defines most of the key operations.
-export class Node {
+class Node {
 	static Namespaces = {
 		svg: "http://www.w3.org/2000/svg",
 		xlink: "http://www.w3.org/1999/xlink",
@@ -191,9 +179,7 @@ export class Node {
 	}
 
 	get innerHTML(): string {
-		return this.childNodes
-			.map((_) => _.toXMLLines({ html: true }).join(""))
-			.join("");
+		return this.childNodes.map((_) => _.toXMLLines({ html: true }).join("")).join("");
 	}
 
 	get innerText(): string {
@@ -208,7 +194,7 @@ export class Node {
 		let scope: Node[] = [this];
 		for (const qs of query.split(/\s+/)) {
 			if (qs) {
-				const q = new Query(query);
+				const q = new Query(qs);
 				const matched: Node[] = [];
 				for (const n of scope) {
 					n.iterWalk((_) => {
@@ -270,9 +256,7 @@ export class Node {
 	}
 
 	get textContent(): string {
-		return this.childNodes.length
-			? this.childNodes.map((_) => _.textContent).join("")
-			: this.data;
+		return this.childNodes.length ? this.childNodes.map((_) => _.textContent).join("") : this.data;
 	}
 
 	// --
@@ -374,9 +358,7 @@ export class Node {
 		// Check if referenceNode is a child of this node
 		const i = this.childNodes.indexOf(referenceNode);
 		if (i < 0) {
-			throw new Error(
-				"NotFoundError: The reference node is not a child of this node",
-			);
+			throw new Error("NotFoundError: The reference node is not a child of this node");
 		}
 
 		// Handle DocumentFragment - insert all children
@@ -480,10 +462,7 @@ export class Node {
 				break;
 			case Node.TEXT_NODE:
 				// FIXME: This is not the right way to do it
-				yield this.data
-					.replace(/&/g, "&amp;")
-					.replace(/>/g, "&gt;")
-					.replace(/</g, "&lt;");
+				yield this.data.replace(/&/g, "&amp;").replace(/>/g, "&gt;").replace(/</g, "&lt;");
 				break;
 		}
 	}
@@ -552,9 +531,7 @@ export class Node {
 							.map((k) => `${toCSSPropertyName(k)}: ${element.style[k]}`)
 							.join(";");
 						if (inlineStyles) {
-							styleValue = styleValue
-								? `${styleValue};${inlineStyles}`
-								: inlineStyles;
+							styleValue = styleValue ? `${styleValue};${inlineStyles}` : inlineStyles;
 						}
 						if (styleValue) {
 							yield ` style="${styleValue}"`;
@@ -574,9 +551,7 @@ export class Node {
 												? "xml"
 												: null;
 								const attrName = prefix ? `${prefix}:${k}` : k;
-								yield v.value === null
-									? ` ${attrName}`
-									: ` ${attrName}="${v.value}"`;
+								yield v.value === null ? ` ${attrName}` : ` ${attrName}="${v.value}"`;
 							}
 						}
 					}
@@ -597,10 +572,7 @@ export class Node {
 				break;
 			case Node.TEXT_NODE:
 				// FIXME: This is not the right way to do it
-				yield this.data
-					.replace(/&/g, "&amp;")
-					.replace(/>/g, "&gt;")
-					.replace(/</g, "&lt;");
+				yield this.data.replace(/&/g, "&amp;").replace(/>/g, "&gt;").replace(/</g, "&lt;");
 				break;
 			case Node.COMMENT_NODE:
 				if (has_comments) {
@@ -663,17 +635,13 @@ function getDataSet(target: Element, property: string | symbol): any {
 	return (target as any)[property];
 }
 
-export class AttributeNode extends Node {
+class AttributeNode extends Node {
 	name: string;
 	namespace: string | null;
 	ownerElement: Element | null;
 	_value: string | undefined;
 
-	constructor(
-		name: string,
-		namespace: string | null,
-		ownerElement: Element | null,
-	) {
+	constructor(name: string, namespace: string | null, ownerElement: Element | null) {
 		super(name, Node.ATTRIBUTE_NODE);
 		this.name = name;
 		this.namespace = namespace;
@@ -703,9 +671,7 @@ export class AttributeNode extends Node {
 				if (!this.ownerElement._attributesNS.has(this.namespace)) {
 					this.ownerElement._attributesNS.set(this.namespace, new Map());
 				}
-				this.ownerElement._attributesNS
-					.get(this.namespace)
-					?.set(this.name, this);
+				this.ownerElement._attributesNS.get(this.namespace)?.set(this.name, this);
 			} else {
 				// For regular attributes, set directly in the map to avoid recursion
 				this.ownerElement._attributes.set(this.name, this);
@@ -722,7 +688,7 @@ export class AttributeNode extends Node {
 	}
 }
 
-export class Element extends Node {
+class Element extends Node {
 	namespace: string | null;
 	style: { [key: string]: string };
 	_attributes: Map<string, AttributeNode>;
@@ -840,9 +806,7 @@ export class Element extends Node {
 
 	removeAttributeNode(attributeNode: AttributeNode): AttributeNode {
 		if (attributeNode.ownerElement !== this) {
-			throw new Error(
-				"NotFoundError: The attribute node is not owned by this element",
-			);
+			throw new Error("NotFoundError: The attribute node is not owned by this element");
 		}
 
 		if (attributeNode.namespace) {
@@ -878,9 +842,7 @@ export class Element extends Node {
 			if (!this._attributesNS.has(attributeNode.namespace)) {
 				this._attributesNS.set(attributeNode.namespace, new Map());
 			}
-			this._attributesNS
-				.get(attributeNode.namespace)
-				?.set(attributeNode.name, attributeNode);
+			this._attributesNS.get(attributeNode.namespace)?.set(attributeNode.name, attributeNode);
 		} else {
 			this._attributes.set(attributeNode.name, attributeNode);
 		}
@@ -940,7 +902,7 @@ export class Element extends Node {
 	}
 }
 
-export class TemplateElement extends Element {
+class TemplateElement extends Element {
 	content: DocumentFragment;
 
 	constructor(name: string, namespace: string | null = null) {
@@ -954,7 +916,7 @@ export class TemplateElement extends Element {
 	}
 }
 
-export class TextNode extends Node {
+class TextNode extends Node {
 	constructor(data: string) {
 		super("#text", Node.TEXT_NODE);
 		this.data = data;
@@ -973,7 +935,7 @@ export class TextNode extends Node {
 	}
 }
 
-export class Comment extends Node {
+class Comment extends Node {
 	constructor(data: string) {
 		super("#comment", Node.COMMENT_NODE);
 		this.data = data;
@@ -992,13 +954,13 @@ export class Comment extends Node {
 	}
 }
 
-export class DocumentFragment extends Node {
+class DocumentFragment extends Node {
 	constructor() {
 		super("document-fragment", Node.DOCUMENT_FRAGMENT_NODE);
 	}
 }
 
-export class Document extends Node {
+class Document extends Node {
 	body: Element;
 	_elements: Element[];
 
@@ -1015,8 +977,7 @@ export class Document extends Node {
 	}
 
 	getElementById(id: string): Element | null {
-		for (const i in this._elements) {
-			const n = this._elements[i];
+		for (const n of this._elements) {
 			if (n && n.id === id) {
 				return n;
 			}
@@ -1045,7 +1006,7 @@ export class Document extends Node {
 	}
 
 	createElement(name: string): Element {
-		let element: Element | null = null;
+		let element: Element;
 		switch (name) {
 			case "template":
 			case "TEMPLATE":
@@ -1071,7 +1032,7 @@ export class Document extends Node {
 	}
 }
 
-export const NodeFilter = {
+const NodeFilter = {
 	SHOW_ALL: 4294967295,
 	SHOW_ATTRIBUTE: 2,
 	SHOW_CDATA_SECTION: 8,
@@ -1087,17 +1048,13 @@ export const NodeFilter = {
 	SHOW_TEXT: 4,
 };
 
-export class TreeWalker {
+class TreeWalker {
 	root: Node;
 	currentNode: Node;
 	nodeFilter: number;
 	predicate?: (node: Node) => boolean;
 
-	constructor(
-		root: Node,
-		nodeFilter: number,
-		predicate?: (node: Node) => boolean,
-	) {
+	constructor(root: Node, nodeFilter: number, predicate?: (node: Node) => boolean) {
 		this.root = root;
 		this.currentNode = root;
 		this.nodeFilter = nodeFilter;
@@ -1164,7 +1121,7 @@ export class TreeWalker {
 //
 // This is used to work with `classList`, for instance.
 //
-export class TokenList {
+class TokenList {
 	element: Element;
 	attribute: string;
 
@@ -1212,7 +1169,7 @@ export class TokenList {
 	}
 }
 
-export class StyleSheet {
+class StyleSheet {
 	cssRules: string[];
 
 	constructor() {
@@ -1233,7 +1190,7 @@ export class StyleSheet {
 const toCSSPropertyName = (name: string): string => {
 	const property = /[A-Za-z][a-z]*/g;
 	const res: string[] = [];
-	let match: RegExpExecArray | null = null;
+	let match: RegExpExecArray | null;
 
 	do {
 		match = property.exec(name);
@@ -1256,11 +1213,11 @@ const toCSSPropertyName = (name: string): string => {
 //   is a Deno-specific, Rust-based implementation
 //
 
-export const NodeList = Array;
-export const StyleSheetList = Array;
-export const document = new Document();
+const NodeList = Array;
+const StyleSheetList = Array;
+const document = new Document();
 // Alias HTMLElement to Element for compatibility
-export const HTMLElement = Element;
+const HTMLElement = Element;
 
 const DOM = {
 	Node,
@@ -1273,11 +1230,29 @@ const DOM = {
 	document,
 };
 
-export function install(
-	target: typeof globalThis = globalThis,
-): typeof globalThis {
+function install(target: typeof globalThis = globalThis): typeof globalThis {
 	return Object.assign(target, DOM);
 }
 
+export {
+	HTML_EMPTY,
+	Node,
+	AttributeNode,
+	Element,
+	TemplateElement,
+	TextNode,
+	Comment,
+	DocumentFragment,
+	Document,
+	NodeFilter,
+	TreeWalker,
+	TokenList,
+	StyleSheet,
+	NodeList,
+	StyleSheetList,
+	document,
+	HTMLElement,
+	install,
+};
 export default DOM;
 // EOF

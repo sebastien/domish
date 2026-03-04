@@ -1,0 +1,509 @@
+import { describe, test, expect, beforeEach } from "bun:test";
+import {
+  Node,
+  Element,
+  Document,
+  TextNode,
+  Comment,
+  DocumentFragment,
+  AttributeNode,
+  TemplateElement,
+  TokenList,
+  TreeWalker,
+  NodeFilter,
+  StyleSheet,
+  document,
+  HTML_EMPTY,
+} from "../src/ts/domish/domish.js";
+
+describe("Node constants", () => {
+  test("nodeType constants are defined", () => {
+    expect(Node.ELEMENT_NODE).toBe(1);
+    expect(Node.ATTRIBUTE_NODE).toBe(2);
+    expect(Node.TEXT_NODE).toBe(3);
+    expect(Node.COMMENT_NODE).toBe(8);
+    expect(Node.DOCUMENT_NODE).toBe(9);
+    expect(Node.DOCUMENT_FRAGMENT_NODE).toBe(11);
+  });
+
+  test("NodeNamespaces are defined", () => {
+    expect(Node.Namespaces.svg).toBe("http://www.w3.org/2000/svg");
+    expect(Node.Namespaces.xlink).toBe("http://www.w3.org/1999/xlink");
+  });
+});
+
+describe("Node class", () => {
+  let node: Node;
+
+  beforeEach(() => {
+    node = new Node("test", Node.ELEMENT_NODE);
+  });
+
+  test("creates with correct properties", () => {
+    expect(node.nodeName).toBe("test");
+    expect(node.nodeType).toBe(Node.ELEMENT_NODE);
+    expect(node.childNodes).toEqual([]);
+    expect(node.parentNode).toBeNull();
+    expect(node.data).toBe("");
+  });
+
+  test("children getter returns element children only", () => {
+    const parent = new Element("parent");
+    const child = new Element("child");
+    const text = new TextNode("text");
+    parent.appendChild(text);
+    parent.appendChild(child);
+    expect(parent.children).toEqual([child]);
+  });
+
+  test("firstChild and lastChild", () => {
+    const parent = new Element("parent");
+    const child1 = new Element("child1");
+    const child2 = new Element("child2");
+    parent.appendChild(child1);
+    parent.appendChild(child2);
+    expect(parent.firstChild).toBe(child1);
+    expect(parent.lastChild).toBe(child2);
+  });
+
+  test("hasChildNodes", () => {
+    const parent = new Element("parent");
+    expect(parent.hasChildNodes()).toBe(false);
+    parent.appendChild(new Element("child"));
+    expect(parent.hasChildNodes()).toBe(true);
+  });
+
+  test("textContent getter", () => {
+    const parent = new Element("parent");
+    parent.appendChild(new TextNode("hello"));
+    parent.appendChild(new TextNode(" world"));
+    expect(parent.textContent).toBe("hello world");
+  });
+});
+
+describe("Element class", () => {
+  let element: Element;
+
+  beforeEach(() => {
+    element = new Element("div");
+  });
+
+  test("creates element with correct properties", () => {
+    expect(element.nodeName).toBe("div");
+    expect(element.nodeType).toBe(Node.ELEMENT_NODE);
+    expect(element.namespace).toBeNull();
+    expect(element.style).toEqual({});
+  });
+
+  test("setAttribute and getAttribute", () => {
+    element.setAttribute("id", "test-id");
+    element.setAttribute("class", "test-class");
+    expect(element.getAttribute("id")).toBe("test-id");
+    expect(element.getAttribute("class")).toBe("test-class");
+    expect(element.getAttribute("nonexistent")).toBeNull();
+  });
+
+  test("hasAttribute", () => {
+    element.setAttribute("id", "test");
+    expect(element.hasAttribute("id")).toBe(true);
+    expect(element.hasAttribute("class")).toBe(false);
+  });
+
+  test("removeAttribute", () => {
+    element.setAttribute("id", "test");
+    element.removeAttribute("id");
+    expect(element.hasAttribute("id")).toBe(false);
+    expect(element.getAttribute("id")).toBeNull();
+  });
+
+  test("attributes getter returns all attributes", () => {
+    element.setAttribute("id", "test");
+    element.setAttribute("class", "test");
+    const attrs = element.attributes;
+    expect(attrs.length).toBe(2);
+    expect(attrs.map((a) => a.name)).toContain("id");
+    expect(attrs.map((a) => a.name)).toContain("class");
+  });
+
+  test("namespace support with setAttributeNS", () => {
+    element.setAttributeNS("http://www.w3.org/1999/xlink", "href", "http://example.com");
+    expect(element.getAttributeNS("http://www.w3.org/1999/xlink", "href")).toBe("http://example.com");
+    expect(element.hasAttributeNS("http://www.w3.org/1999/xlink", "href")).toBe(true);
+  });
+
+  test("id getter", () => {
+    element.setAttribute("id", "my-id");
+    expect(element.id).toBe("my-id");
+  });
+
+  test("style object", () => {
+    element.style.color = "red";
+    element.style.backgroundColor = "blue";
+    expect(element.style.color).toBe("red");
+    expect(element.style.backgroundColor).toBe("blue");
+  });
+
+  test("classList", () => {
+    element.classList.add("active");
+    element.classList.add("hidden");
+    expect(element.classList.contains("active")).toBe(true);
+    expect(element.classList.contains("hidden")).toBe(true);
+    expect(element.classList.contains("nonexistent")).toBe(false);
+    element.classList.remove("active");
+    expect(element.classList.contains("active")).toBe(false);
+    expect(element.classList.toggle("visible")).toBe(true);
+    expect(element.classList.toggle("visible")).toBe(false);
+  });
+
+  test("dataset proxy exists", () => {
+    expect(element.dataset).toBeDefined();
+  });
+});
+
+describe("Document class", () => {
+  let doc: Document;
+
+  beforeEach(() => {
+    doc = new Document();
+  });
+
+  test("createElement", () => {
+    const el = doc.createElement("div");
+    expect(el.nodeName).toBe("div");
+    expect(el.nodeType).toBe(Node.ELEMENT_NODE);
+  });
+
+  test("createTextNode", () => {
+    const text = doc.createTextNode("hello");
+    expect(text.nodeName).toBe("#text");
+    expect(text.nodeType).toBe(Node.TEXT_NODE);
+    expect(text.data).toBe("hello");
+  });
+
+  test("createComment", () => {
+    const comment = doc.createComment("test comment");
+    expect(comment.nodeName).toBe("#comment");
+    expect(comment.nodeType).toBe(Node.COMMENT_NODE);
+    expect(comment.data).toBe("test comment");
+  });
+
+  test("createDocumentFragment", () => {
+    const fragment = doc.createDocumentFragment();
+    expect(fragment.nodeType).toBe(Node.DOCUMENT_FRAGMENT_NODE);
+  });
+
+  test("getElementById", () => {
+    const el = doc.createElement("div");
+    el.setAttribute("id", "test-id");
+    doc.createElement("div");
+    doc.createElement("div");
+    expect(doc.getElementById("test-id")).toBe(el);
+    expect(doc.getElementById("nonexistent")).toBeNull();
+  });
+
+  test("createElement with template", () => {
+    const template = doc.createElement("template") as TemplateElement;
+    expect(template).toBeInstanceOf(TemplateElement);
+    expect(template.content).toBeInstanceOf(DocumentFragment);
+  });
+
+  test("createTreeWalker", () => {
+    const root = doc.createElement("root");
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    expect(walker).toBeInstanceOf(TreeWalker);
+    expect(walker.root).toBe(root);
+  });
+});
+
+describe("TreeWalker", () => {
+  test("creates with root and filter", () => {
+    const doc = new Document();
+    const root = doc.createElement("root");
+    const child = doc.createElement("child");
+    root.appendChild(child);
+
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    expect(walker.root).toBe(root);
+    expect(walker.currentNode).toBe(root);
+  });
+
+  test("filters by node type", () => {
+    const doc = new Document();
+    const root = doc.createElement("root");
+    root.appendChild(doc.createTextNode("text"));
+    root.appendChild(doc.createElement("child"));
+
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: string[] = [];
+    let node = walker.nextNode();
+    while (node) {
+      nodes.push(node.nodeName);
+      node = walker.nextNode();
+    }
+    expect(nodes).toEqual(["#text"]);
+  });
+});
+
+describe("DOM tree operations", () => {
+  let doc: Document;
+
+  beforeEach(() => {
+    doc = new Document();
+  });
+
+  test("appendChild", () => {
+    const parent = doc.createElement("parent");
+    const child = doc.createElement("child");
+    parent.appendChild(child);
+    expect(parent.childNodes).toContain(child);
+    expect(child.parentNode).toBe(parent);
+  });
+
+  test("appendChild moves node from existing parent", () => {
+    const parent1 = doc.createElement("parent1");
+    const parent2 = doc.createElement("parent2");
+    const child = doc.createElement("child");
+    parent1.appendChild(child);
+    parent2.appendChild(child);
+    expect(parent1.childNodes).not.toContain(child);
+    expect(parent2.childNodes).toContain(child);
+    expect(child.parentNode).toBe(parent2);
+  });
+
+  test("insertBefore", () => {
+    const parent = doc.createElement("parent");
+    const child1 = doc.createElement("child1");
+    const child2 = doc.createElement("child2");
+    parent.appendChild(child1);
+    parent.insertBefore(child2, child1);
+    expect(parent.childNodes[0]).toBe(child2);
+    expect(parent.childNodes[1]).toBe(child1);
+  });
+
+  test("insertBefore with null inserts at end", () => {
+    const parent = doc.createElement("parent");
+    const child1 = doc.createElement("child1");
+    parent.appendChild(child1);
+    const child2 = doc.createElement("child2");
+    parent.insertBefore(child2, null);
+    expect(parent.childNodes[1]).toBe(child2);
+  });
+
+  test("removeChild", () => {
+    const parent = doc.createElement("parent");
+    const child = doc.createElement("child");
+    parent.appendChild(child);
+    parent.removeChild(child);
+    expect(parent.childNodes).not.toContain(child);
+    expect(child.parentNode).toBeNull();
+  });
+
+  test("replaceChild", () => {
+    const parent = doc.createElement("parent");
+    const oldChild = doc.createElement("old");
+    const newChild = doc.createElement("new");
+    parent.appendChild(oldChild);
+    parent.replaceChild(newChild, oldChild);
+    expect(parent.childNodes[0]).toBe(newChild);
+    expect(oldChild.parentNode).toBeNull();
+  });
+
+  test("DocumentFragment appendChild", () => {
+    const fragment = new DocumentFragment();
+    const child1 = new Element("child1");
+    const child2 = new Element("child2");
+    fragment.appendChild(child1);
+    fragment.appendChild(child2);
+    expect(fragment.childNodes.length).toBe(2);
+
+    const parent = new Element("parent");
+    parent.appendChild(fragment);
+    expect(parent.childNodes.length).toBe(2);
+    expect(fragment.childNodes.length).toBe(0);
+  });
+
+  test("after inserts after node", () => {
+    const parent = doc.createElement("parent");
+    const child1 = doc.createElement("child1");
+    const child2 = doc.createElement("child2");
+    parent.appendChild(child1);
+    child1.after(child2);
+    expect(parent.childNodes[0]).toBe(child1);
+    expect(parent.childNodes[1]).toBe(child2);
+  });
+});
+
+describe("cloneNode", () => {
+  test("shallow clone", () => {
+    const doc = new Document();
+    const original = doc.createElement("div");
+    original.setAttribute("id", "test");
+    original.appendChild(doc.createTextNode("text"));
+    const clone = original.cloneNode(false);
+    expect(clone.nodeName).toBe("div");
+    expect(clone.getAttribute("id")).toBe("test");
+    expect(clone.childNodes.length).toBe(0);
+    expect(clone.parentNode).toBeNull();
+  });
+
+  test("deep clone", () => {
+    const doc = new Document();
+    const original = doc.createElement("div");
+    original.setAttribute("id", "test");
+    const child = doc.createElement("span");
+    original.appendChild(child);
+    const clone = original.cloneNode(true);
+    expect(clone.childNodes.length).toBe(1);
+    expect(clone.getAttribute("id")).toBe("test");
+    expect(clone.childNodes[0]).not.toBe(child);
+  });
+});
+
+describe("querySelector/querySelectorAll", () => {
+  test("iterWalk traverses tree", () => {
+    const doc = new Document();
+    const root = doc.createElement("root");
+    const child = doc.createElement("child");
+    root.appendChild(child);
+    const visited: string[] = [];
+    root.iterWalk((n) => {
+      visited.push(n.nodeName);
+      return undefined;
+    });
+    expect(visited).toContain("root");
+    expect(visited).toContain("child");
+  });
+});
+
+describe("serialization", () => {
+  let doc: Document;
+
+  beforeEach(() => {
+    doc = new Document();
+  });
+
+  test("toXML basic element", () => {
+    const el = doc.createElement("div");
+    expect(el.toXML()).toBe("<div />");
+  });
+
+  test("toXML with attributes", () => {
+    const el = doc.createElement("div");
+    el.setAttribute("id", "test");
+    expect(el.toXML()).toBe('<div id="test" />');
+  });
+
+  test("toXML with children", () => {
+    const parent = doc.createElement("parent");
+    const child = doc.createElement("child");
+    parent.appendChild(child);
+    expect(parent.toXML()).toBe("<parent><child /></parent>");
+  });
+
+  test("toXML with text content", () => {
+    const el = doc.createElement("p");
+    el.appendChild(doc.createTextNode("Hello"));
+    expect(el.toXML()).toBe("<p>Hello</p>");
+  });
+
+  test("toHTML self-closing tags", () => {
+    const br = doc.createElement("br");
+    expect(br.toHTML()).toBe("<br >");
+    const img = doc.createElement("img");
+    img.setAttribute("src", "test.png");
+    expect(img.toHTML()).toBe('<img src="test.png" >');
+  });
+
+  test("outerHTML", () => {
+    const el = doc.createElement("div");
+    el.setAttribute("id", "test");
+    expect(el.outerHTML).toBe('<div id="test" />');
+  });
+
+  test("innerHTML", () => {
+    const parent = doc.createElement("div");
+    parent.appendChild(doc.createTextNode("text"));
+    const child = doc.createElement("span");
+    parent.appendChild(child);
+    expect(parent.innerHTML).toBe("text<span />");
+  });
+
+  test("innerText", () => {
+    const parent = doc.createElement("div");
+    parent.appendChild(doc.createTextNode("Hello"));
+    parent.appendChild(doc.createTextNode(" World"));
+    expect(parent.innerText).toBe("Hello World");
+  });
+});
+
+describe("events", () => {
+  test("addEventListener and dispatchEvent", () => {
+    const el = new Element("div");
+    let called = false;
+    el.addEventListener("click", () => {
+      called = true;
+    });
+    el.dispatchEvent({ type: "click", target: null, currentTarget: null, defaultPrevented: false, preventDefault: () => {} });
+    expect(called).toBe(true);
+  });
+
+  test("removeEventListener", () => {
+    const el = new Element("div");
+    let count = 0;
+    const handler = () => count++;
+    el.addEventListener("click", handler);
+    el.dispatchEvent({ type: "click", target: null, currentTarget: null, defaultPrevented: false, preventDefault: () => {} });
+    el.removeEventListener("click", handler);
+    el.dispatchEvent({ type: "click", target: null, currentTarget: null, defaultPrevented: false, preventDefault: () => {} });
+    expect(count).toBe(1);
+  });
+
+  test("dispatchEvent returns false if defaultPrevented", () => {
+    const el = new Element("div");
+    const result = el.dispatchEvent({ type: "test", target: null, currentTarget: null, defaultPrevented: true, preventDefault: () => {} });
+    expect(result).toBe(false);
+  });
+});
+
+describe("StyleSheet", () => {
+  test("insertRule and deleteRule", () => {
+    const sheet = new StyleSheet();
+    sheet.insertRule(".test { color: red; }");
+    expect(sheet.cssRules.length).toBe(1);
+    expect(sheet.cssRules[0]).toBe(".test { color: red; }");
+    sheet.deleteRule(0);
+    expect(sheet.cssRules.length).toBe(0);
+  });
+
+  test("insertRule at index", () => {
+    const sheet = new StyleSheet();
+    sheet.insertRule(".a {}");
+    sheet.insertRule(".b {}", 0);
+    expect(sheet.cssRules[0]).toBe(".b {}");
+  });
+});
+
+describe("HTML_EMPTY tags", () => {
+  test("br serializes as self-closing in HTML", () => {
+    const br = new Element("br");
+    expect(br.toHTML()).toBe("<br >");
+  });
+
+  test("img serializes as self-closing in HTML", () => {
+    const img = new Element("img");
+    img.setAttribute("src", "test.png");
+    expect(img.toHTML()).toBe('<img src="test.png" >');
+  });
+});
+
+describe("global document", () => {
+  test("document exists and is a Document", () => {
+    expect(document).toBeDefined();
+    expect(document.nodeType).toBe(Node.DOCUMENT_NODE);
+  });
+
+  test("document can create elements", () => {
+    const el = document.createElement("div");
+    expect(el.nodeName).toBe("div");
+  });
+});

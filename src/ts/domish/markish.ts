@@ -26,6 +26,8 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 		let children = node.childNodes;
 		const name = (node.nodeName ?? "").toLowerCase();
 		const prefix = Array((context?.indent ?? 0) + 1).join("  ");
+		// DEBUG
+		// console.error(`imarkdown: name=${name}, type=${node.nodeType}, children=${children?.length}`);
 		switch (node.nodeType) {
 			case node.constructor.ELEMENT_NODE:
 				switch (name) {
@@ -116,14 +118,19 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 					case "img":
 						yield `![${node.getAttribute("alt")}](${node.getAttribute("src")})`;
 						break;
-					case "table":
-						yield LineBreak;
-						suffix = "\n";
-						break;
+				case "table":
+					yield LineBreak;
+					context = derive(context, {
+						container: "table",
+						rows: [],
+					});
+					suffix = "\n";
+					break;
 					case "thead":
 					case "tbody":
 					case "tfoot":
-						children = [];
+						// These container elements don't need special handling,
+						// just process their children
 						break;
 					case "tr":
 						if (context?.container === "table") {
@@ -141,8 +148,23 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 					default:
 						break;
 				}
-				for (const _ of children) {
-					yield* imarkdown(_, context);
+			// DEBUG
+			// console.error(`  Processing ${children?.length} children for ${name}`);
+			for (const _ of children) {
+				yield* imarkdown(_, context);
+			}
+				if (name === "table" && context?.rows?.length) {
+					// Render table rows as markdown
+					const rows = context.rows as string[][];
+					const maxCols = Math.max(...rows.map((r: string[]) => r.length));
+					for (let i = 0; i < rows.length; i++) {
+						const row = rows[i];
+						yield "| " + row.join(" | ") + " |\n";
+						// Add header separator after first row
+						if (i === 0) {
+							yield "|" + " --- |".repeat(maxCols) + "\n";
+						}
+					}
 				}
 				if (suffix) {
 					yield suffix;
@@ -163,15 +185,13 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 	}
 }
 
-export function markdown(node: any): string {
+function markdown(node: any): string {
 	const res: string[] = [];
 	let last: unknown;
 
-	let _lastType: unknown;
 	for (const _ of imarkdown(node)) {
 		if (_ === LineBreak) {
 			res.push("\n");
-			_lastType = LineBreak;
 		} else if (_ === Space) {
 			// Skip space if last was space or linebreak
 			if (last !== Space && last !== LineBreak && last !== "\n") {
@@ -188,4 +208,6 @@ export function markdown(node: any): string {
 		.trim();
 }
 
+export { markdown };
 export default { markdown };
+// EOF
