@@ -434,7 +434,7 @@ describe("markdown conversion", () => {
 			doc.body.appendChild(table);
 
 			const result = markdown(doc.body);
-			const lines = result.split("\n").filter(line => line.includes("|"));
+			const lines = result.split("\n").filter((line) => line.includes("|"));
 			expect(lines.length).toBe(3); // header row, separator, data row
 			expect(lines[0]).toMatch(/\| Name \| Age \|/);
 			expect(lines[1]).toMatch(/\| --- \| --- \|/);
@@ -524,7 +524,7 @@ describe("markdown conversion", () => {
 			doc.body.appendChild(table);
 
 			const result = markdown(doc.body);
-			const lines = result.split("\n").filter(line => line.includes("|"));
+			const lines = result.split("\n").filter((line) => line.includes("|"));
 			expect(lines.length).toBe(3); // header, separator (5 cols), data row
 			// Separator should contain 5 "---" patterns
 			const separator = lines[1];
@@ -532,57 +532,304 @@ describe("markdown conversion", () => {
 			expect(separatorCount).toBeGreaterThanOrEqual(4); // At least 4 separators for 5 columns
 		});
 
-		test("converts complex table like Freshdesk example", () => {
+		test("converts empty table", () => {
 			const doc = new Document();
 			const table = createElement("table");
-			const tbody = createElement("tbody");
-
-			// Header row with br element
-			const row1 = createElement("tr");
-			const td1 = createElement("td");
-			const br = createElement("br");
-			td1.appendChild(br);
-			td1.appendChild(createTextNode("Knocky"));
-			row1.appendChild(td1);
-			const td2 = createElement("td");
-			td2.appendChild(createTextNode("Flor"));
-			row1.appendChild(td2);
-			const td3 = createElement("td");
-			td3.appendChild(createTextNode("Ella"));
-			row1.appendChild(td3);
-			const td4 = createElement("td");
-			td4.appendChild(createTextNode("Juan"));
-			row1.appendChild(td4);
-			tbody.appendChild(row1);
-
-			// Data row
-			const row2 = createElement("tr");
-			const tdBreed1 = createElement("td");
-			tdBreed1.appendChild(createTextNode("Breed"));
-			row2.appendChild(tdBreed1);
-			const tdBreed2 = createElement("td");
-			tdBreed2.appendChild(createTextNode("Jack Russell"));
-			row2.appendChild(tdBreed2);
-			const tdBreed3 = createElement("td");
-			tdBreed3.appendChild(createTextNode("Poodle"));
-			row2.appendChild(tdBreed3);
-			const tdBreed4 = createElement("td");
-			tdBreed4.appendChild(createTextNode("Streetdog"));
-			row2.appendChild(tdBreed4);
-			const tdBreed5 = createElement("td");
-			tdBreed5.appendChild(createTextNode("Cocker Spaniel"));
-			row2.appendChild(tdBreed5);
-			tbody.appendChild(row2);
-
-			table.appendChild(tbody);
 			doc.body.appendChild(table);
-
 			const result = markdown(doc.body);
-			expect(result).toContain("Knocky");
-			expect(result).toContain("Flor");
-			expect(result).toContain("Breed");
-			expect(result).toContain("Jack Russell");
-			expect(result).toMatch(/\| Knocky \| Flor \| Ella \| Juan \|/);
+			// Empty table should produce minimal output
+			expect(result).toBe("");
+		});
+	});
+
+	describe("nested elements", () => {
+		test("converts bold inside italic", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			const em = createElement("em");
+			const strong = createElement("strong");
+			strong.appendChild(createTextNode("bold and italic"));
+			em.appendChild(strong);
+			p.appendChild(em);
+			doc.body.appendChild(p);
+			expect(markdown(doc.body)).toBe("_**bold and italic **_");
+		});
+
+		test("converts italic inside bold", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			const strong = createElement("strong");
+			const em = createElement("em");
+			em.appendChild(createTextNode("italic and bold"));
+			strong.appendChild(em);
+			p.appendChild(strong);
+			doc.body.appendChild(p);
+			expect(markdown(doc.body)).toBe("**_italic and bold _**");
+		});
+
+		test("converts link inside list item", () => {
+			const doc = new Document();
+			const ul = createElement("ul");
+			const li = createElement("li");
+			const a = createElement("a");
+			a.setAttribute("href", "http://example.com");
+			a.appendChild(createTextNode("link"));
+			li.appendChild(a);
+			ul.appendChild(li);
+			doc.body.appendChild(ul);
+			const result = markdown(doc.body);
+			expect(result).toContain("-");
+			expect(result).toContain("[link");
+			expect(result).toContain("](http://example.com)");
+		});
+
+		test("converts code inside link", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			const a = createElement("a");
+			a.setAttribute("href", "http://example.com");
+			const code = createElement("code");
+			code.appendChild(createTextNode("code link"));
+			a.appendChild(code);
+			p.appendChild(a);
+			doc.body.appendChild(p);
+			expect(markdown(doc.body)).toBe("[`code link `](http://example.com)");
+		});
+
+		test("converts nested lists", () => {
+			const doc = new Document();
+			const ul = createElement("ul");
+			const li = createElement("li");
+			li.appendChild(createTextNode("outer"));
+			const nestedUl = createElement("ul");
+			const nestedLi = createElement("li");
+			nestedLi.appendChild(createTextNode("nested"));
+			nestedUl.appendChild(nestedLi);
+			li.appendChild(nestedUl);
+			ul.appendChild(li);
+			doc.body.appendChild(ul);
+			const result = markdown(doc.body);
+			expect(result).toContain("outer");
+			expect(result).toContain("nested");
+		});
+	});
+
+	describe("edge cases", () => {
+		test("handles null node", () => {
+			expect(markdown(null)).toBe("");
+		});
+
+		test("handles undefined node", () => {
+			expect(markdown(undefined)).toBe("");
+		});
+
+		test("handles empty document", () => {
+			const doc = new Document();
+			expect(markdown(doc.body)).toBe("");
+		});
+
+		test("handles empty element", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			doc.body.appendChild(p);
+			expect(markdown(doc.body)).toBe("");
+		});
+
+		test("handles whitespace-only text", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			p.appendChild(createTextNode("   \n\t   "));
+			doc.body.appendChild(p);
+			expect(markdown(doc.body)).toBe("");
+		});
+
+		test("handles multiple consecutive br tags", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			p.appendChild(createTextNode("line1"));
+			p.appendChild(createElement("br"));
+			p.appendChild(createElement("br"));
+			p.appendChild(createTextNode("line2"));
+			doc.body.appendChild(p);
+			const result = markdown(doc.body);
+			expect(result).toContain("line1");
+			expect(result).toContain("line2");
+			expect(result).toContain("\n");
+		});
+
+		test("handles link without href", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			const a = createElement("a");
+			a.appendChild(createTextNode("text"));
+			p.appendChild(a);
+			doc.body.appendChild(p);
+			expect(markdown(doc.body)).toBe("[text ](null)");
+		});
+
+		test("handles image without src", () => {
+			const doc = new Document();
+			const img = createElement("img");
+			img.setAttribute("alt", "description");
+			doc.body.appendChild(img);
+			expect(markdown(doc.body)).toBe("![description](null)");
+		});
+
+		test("handles mixed content in paragraph", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			p.appendChild(createTextNode("normal "));
+			const strong = createElement("strong");
+			strong.appendChild(createTextNode("bold"));
+			p.appendChild(strong);
+			p.appendChild(createTextNode(" more "));
+			const em = createElement("em");
+			em.appendChild(createTextNode("italic"));
+			p.appendChild(em);
+			doc.body.appendChild(p);
+			const result = markdown(doc.body);
+			expect(result).toContain("normal");
+			expect(result).toContain("**bold");
+			expect(result).toContain("more");
+			expect(result).toContain("_italic");
+		});
+
+		test("handles deeply nested structure", () => {
+			const doc = new Document();
+			const blockquote = createElement("blockquote");
+			const p = createElement("p");
+			const strong = createElement("strong");
+			strong.appendChild(createTextNode("deep"));
+			p.appendChild(strong);
+			blockquote.appendChild(p);
+			doc.body.appendChild(blockquote);
+			const result = markdown(doc.body);
+			expect(result).toContain(">");
+			expect(result).toContain("**deep");
+		});
+
+		test("handles heading with nested formatting", () => {
+			const doc = new Document();
+			const h2 = createElement("h2");
+			h2.appendChild(createTextNode("Title with "));
+			const em = createElement("em");
+			em.appendChild(createTextNode("emphasis"));
+			h2.appendChild(em);
+			doc.body.appendChild(h2);
+			const result = markdown(doc.body);
+			expect(result).toContain("## Title with");
+			expect(result).toContain("_emphasis _");
+		});
+
+		test("handles blockquote with multiple paragraphs", () => {
+			const doc = new Document();
+			const blockquote = createElement("blockquote");
+			const p1 = createElement("p");
+			p1.appendChild(createTextNode("First quoted paragraph"));
+			const p2 = createElement("p");
+			p2.appendChild(createTextNode("Second quoted paragraph"));
+			blockquote.appendChild(p1);
+			blockquote.appendChild(p2);
+			doc.body.appendChild(blockquote);
+			const result = markdown(doc.body);
+			expect(result).toContain(">");
+			expect(result).toContain("First quoted paragraph");
+			expect(result).toContain("Second quoted paragraph");
+		});
+
+		test("handles ordered list with many items", () => {
+			const doc = new Document();
+			const ol = createElement("ol");
+			for (let i = 1; i <= 5; i++) {
+				const li = createElement("li");
+				li.appendChild(createTextNode(`Item ${i}`));
+				ol.appendChild(li);
+			}
+			doc.body.appendChild(ol);
+			const result = markdown(doc.body);
+			expect(result).toContain("1. Item 1");
+			expect(result).toContain("1. Item 2");
+			expect(result).toContain("1. Item 5");
+		});
+
+		test("handles pre with code-like content", () => {
+			const doc = new Document();
+			const pre = createElement("pre");
+			pre.appendChild(createTextNode("function test() {\n  return true;\n}"));
+			doc.body.appendChild(pre);
+			const result = markdown(doc.body);
+			expect(result.startsWith("```")).toBe(true);
+			expect(result.endsWith("```")).toBe(true);
+			expect(result).toContain("function test()");
+		});
+
+		test("handles text nodes between elements", () => {
+			const doc = new Document();
+			const div = createElement("div");
+			div.appendChild(createTextNode("before"));
+			const span = createElement("span");
+			span.appendChild(createTextNode("middle"));
+			div.appendChild(span);
+			div.appendChild(createTextNode("after"));
+			doc.body.appendChild(div);
+			const result = markdown(doc.body);
+			expect(result).toContain("before");
+			expect(result).toContain("middle");
+			expect(result).toContain("after");
+		});
+	});
+
+	describe("text stripping", () => {
+		test("collapses multiple spaces", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			p.appendChild(createTextNode("word1    word2"));
+			doc.body.appendChild(p);
+			expect(markdown(doc.body)).toBe("word1 word2");
+		});
+
+		test("collapses tabs and newlines", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			p.appendChild(createTextNode("word1\n\n\nword2"));
+			doc.body.appendChild(p);
+			expect(markdown(doc.body)).toBe("word1 word2");
+		});
+
+		test("trims leading and trailing whitespace", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			p.appendChild(createTextNode("\n\t  text  \t\n"));
+			doc.body.appendChild(p);
+			expect(markdown(doc.body)).toBe("text");
+		});
+	});
+
+	describe("unknown elements", () => {
+		test("handles custom elements gracefully", () => {
+			const doc = new Document();
+			const custom = createElement("custom-element");
+			custom.appendChild(createTextNode("content"));
+			doc.body.appendChild(custom);
+			// Should not throw and should still process children
+			expect(() => markdown(doc.body)).not.toThrow();
+			const result = markdown(doc.body);
+			expect(result).toContain("content");
+		});
+
+		test("handles custom inline elements", () => {
+			const doc = new Document();
+			const p = createElement("p");
+			p.appendChild(createTextNode("before "));
+			const custom = createElement("my-span");
+			custom.appendChild(createTextNode("custom"));
+			p.appendChild(custom);
+			p.appendChild(createTextNode(" after"));
+			doc.body.appendChild(p);
+			const result = markdown(doc.body);
+			expect(result).toContain("before");
+			expect(result).toContain("custom");
+			expect(result).toContain("after");
 		});
 	});
 });

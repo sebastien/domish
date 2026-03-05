@@ -140,10 +140,23 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 					case "td":
 					case "th":
 						if (context?.container === "table") {
-							const text = strip(node.textContent);
-							context.rows[context.rows.length - 1].push(text);
+							// Recursively process children to preserve nested elements (images, links, etc.)
+							const cellContent: string[] = [];
+							for (const child of children) {
+								// Collect all yielded values and filter out symbols
+								for (const yielded of imarkdown(child, context)) {
+									if (
+										yielded !== Space &&
+										yielded !== LineBreak &&
+										typeof yielded === "string"
+									) {
+										cellContent.push(yielded);
+									}
+								}
+							}
+							context.rows[context.rows.length - 1].push(cellContent.join(" ").trim());
 						}
-						children = [];
+						children = []; // Prevent default processing since we handled it manually
 						break;
 					default:
 						break;
@@ -153,23 +166,29 @@ function* imarkdown(node: any, context: any = {}): Generator<any> {
 			for (const _ of children) {
 				yield* imarkdown(_, context);
 			}
-				if (name === "table" && context?.rows?.length) {
-					// Render table rows as markdown
-					const rows = context.rows as string[][];
-					const maxCols = Math.max(...rows.map((r: string[]) => r.length));
-					for (let i = 0; i < rows.length; i++) {
-						const row = rows[i];
-						yield "| " + row.join(" | ") + " |\n";
-						// Add header separator after first row
-						if (i === 0) {
-							yield "|" + " --- |".repeat(maxCols) + "\n";
-						}
+
+			if (name === "table" && context?.rows?.length) {
+				// Render table rows as markdown
+				const rows = context.rows as string[][];
+				const maxCols = Math.max(...rows.map((r: string[]) => r.length));
+				for (let i = 0; i < rows.length; i++) {
+					const row = rows[i];
+					// Pad shorter rows with empty cells to match maxCols
+					while (row.length < maxCols) {
+						row.push("");
+					}
+					yield "| " + row.join(" | ") + " |\n";
+					// Add header separator after first row
+					if (i === 0) {
+						yield "|" + " --- |".repeat(maxCols) + "\n";
 					}
 				}
-				if (suffix) {
-					yield suffix;
-				}
-				break;
+			}
+
+			if (suffix) {
+				yield suffix;
+			}
+			break;
 			case node.constructor.TEXT_NODE: {
 				const text = strip(node.textContent);
 				if (text) {
