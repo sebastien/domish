@@ -1,22 +1,63 @@
-// This is a Bard-assisted port of my Python's XMLish module. It's a simple HTML/XML
-// parser that can be used in both SAX/DOM style.
+// Project: DOMIsh
+// Author:  Sebastien Pierre
+// License: Revised BSD License
+// Created: 2022-04-21
 
-// Explicit imports at the top to avoid temporal dead zone issues
+// Module: xmlish
+// A simple HTML/XML parser supporting both SAX and DOM-style parsing.
+// Parses text into a Document with proper handling of HTML void elements,
+// CDATA sections, comments, and entity expansion.
+//
+// Example:
+// ```typescript
+// const doc = parse('<div class="test">Hello <b>World</b></div>');
+// console.log(doc.body.innerHTML);
+// ```
+
 import { Document } from "./domish.js";
 
 // HTML void/empty elements that don't need closing tags
 const HTML_VOID_ELEMENTS = new Set([
-	"area", "base", "basefont", "br", "col", "frame", "hr", "img", "input",
-	"isindex", "link", "meta", "param"
+	"area",
+	"base",
+	"basefont",
+	"br",
+	"col",
+	"frame",
+	"hr",
+	"img",
+	"input",
+	"isindex",
+	"link",
+	"meta",
+	"param",
 ]);
 
-// Main code
+// ----------------------------------------------------------------------------
+//
+// FRAGMENTS
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Fragment
+// ============================================================================
+
+// Class: Fragment
+// Represents a substring fragment within a source text.
+// Used for parsing and position tracking.
+//
+// Properties:
+// - source: string - the original source text
+// - start: number - start index in source
+// - end: number - end index in source
 class Fragment {
-	/** Represents a text fragment. */
 	source: string;
 	start: number;
 	end: number;
 
+	// Method: IterMatches
+	// Static generator that yields MatchFragment instances for all regex matches
+	// and non-matching text segments in `text`.
 	static *IterMatches(pattern: RegExp, text: string): Generator<MatchFragment> {
 		let offset = 0;
 		if (text) {
@@ -25,21 +66,15 @@ class Fragment {
 			while (true) {
 				match = pattern.exec(text);
 				if (!match) break;
-				// Yield a fragment for unmatched text before the match
 				if (offset !== match.index) {
 					yield new MatchFragment(null, new Fragment(text, offset, match.index));
 				}
-
-				// Yield a fragment for the matched text
 				yield new MatchFragment(
 					match,
 					new Fragment(text, match.index, match.index + match[0].length),
 				);
-
 				offset = Math.max(offset + 1, match.index + match[0].length);
 			}
-
-			// Yield a fragment for any remaining unmatched text
 			if (offset < n) {
 				yield new MatchFragment(null, new Fragment(text, offset, n));
 			}
@@ -52,31 +87,49 @@ class Fragment {
 		this.end = end;
 	}
 
+	// Method: slice
+	// Returns a new Fragment representing a slice of this fragment.
 	slice(start = 0, end: number | null = null): Fragment {
 		const i = start >= 0 ? this.start + start : this.end + start;
 		const j = end && end >= 0 ? this.start + end : this.end + (end || 0);
 		return new Fragment(this.source, Math.min(i, j), Math.max(i, j));
 	}
 
+	// Property: text
+	// Returns the text content (same as rawtext, entities handled separately).
 	get text(): string {
-		// Return raw text as-is since entities are handled separately
 		return this.rawtext;
 	}
 
+	// Property: rawtext
+	// Returns the raw substring from source between start and end indices.
 	get rawtext(): string {
 		return this.source.substring(this.start, this.end);
 	}
 
+	// Property: length
+	// Returns the length of this fragment in characters.
 	get length(): number {
 		return this.end - this.start;
 	}
 
+	// Method: toString
+	// Returns a debug string representation.
 	toString(): string {
 		return `<Fragment ${this.start}:${this.end}=${this.text}>`;
 	}
 }
 
-// Define the MatchFragment class
+// ============================================================================
+// SUBSECTION: Match Fragment
+// ============================================================================
+
+// Class: MatchFragment
+// Combines a RegExp match result with its corresponding text Fragment.
+//
+// Properties:
+// - match: RegExpExecArray | null - regex match result or null for non-matches
+// - fragment: Fragment - the text fragment for this match
 class MatchFragment {
 	match: RegExpExecArray | null;
 	fragment: Fragment;
@@ -87,7 +140,18 @@ class MatchFragment {
 	}
 }
 
-// Define the Marker class
+// ============================================================================
+// SUBSECTION: Marker
+// ============================================================================
+
+// Class: Marker
+// Represents a parsed token from HTML/XML markup (start tag, end tag, content, etc.).
+//
+// Properties:
+// - type: string - marker type (Content, Start, End, Inline)
+// - fragment: Fragment - source text fragment for this marker
+// - name: string | null - tag name or special marker name
+// - attributes: { [key: string]: string } - parsed attributes for tag markers
 class Marker {
 	type: string;
 	fragment: Fragment;
@@ -103,21 +167,37 @@ class Marker {
 		this.type = type;
 		this.fragment = fragment;
 		this.name = name;
-		this.attributes = attributes || {}; // Ensure attributes is a dictionary
+		this.attributes = attributes || {};
 	}
 
+	// Property: text
+	// Returns the text content of this marker's fragment.
 	get text(): string {
 		return this.fragment.text;
 	}
 }
 
-// Define the MarkerType enum
+// ============================================================================
+// SUBSECTION: Marker Types
+// ============================================================================
+
+// Constant: MarkerType
+// Enum-like object defining marker type constants.
 const MarkerType = Object.freeze({
 	Content: "Content",
 	Start: "Start",
 	End: "End",
 	Inline: "Inline",
 });
+
+// ----------------------------------------------------------------------------
+//
+// ENTITY EXPANSION
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Entity Handling
+// ============================================================================
 
 const RE_ENTITY = /&(?:#(?<code>\d+)|(?<name>[a-z]+));/gi;
 const ENTITIES: { [key: string]: string } = {
@@ -128,6 +208,9 @@ const ENTITIES: { [key: string]: string } = {
 	apos: "'",
 };
 
+// Function: iexpandEntities
+// Generator that yields text with HTML entities expanded to their character equivalents.
+// Supports named entities (amp, lt, gt, quot, apos) and numeric character references.
 function* iexpandEntities(text: string): Generator<string> {
 	if (!text) {
 		return;
@@ -164,12 +247,20 @@ function* iexpandEntities(text: string): Generator<string> {
 	}
 }
 
+// Function: expandEntities
+// Returns `text` with all HTML entities expanded to their character equivalents.
 function expandEntities(text: string): string {
 	return [...iexpandEntities(text)].join("");
 }
 
-// TODO: We need to manage `<path shape-rendering="geometricPrecision"/>`
-// where the end is />
+// ----------------------------------------------------------------------------
+//
+// PARSING
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Tag Parsing
+// ============================================================================
 
 const RE_TAG = new RegExp(
 	[
@@ -183,9 +274,11 @@ const RE_TAG = new RegExp(
 
 const RE_ATTR_SEP = /[=\s]/;
 
+// Function: parseAttributes
+// Parses an attribute string like `class="test" id="foo"` into an object.
+// Returns an object mapping attribute names to values (null for boolean attributes).
 const parseAttributes = (
 	text: string,
-
 	attributes: { [key: string]: any } = {},
 ): { [key: string]: any } => {
 	// FIXME: We should not do trim or substring, we should
@@ -298,6 +391,15 @@ function* iterMarkers(text: string): Generator<Marker> {
 	}
 }
 
+// Function: parse
+// Parses HTML/XML text and returns a Document. Handles standard HTML elements,
+// void elements, comments, CDATA sections, and DOCTYPE declarations.
+//
+// Example:
+// ```typescript
+// const doc = parse('<div class="greeting">Hello World</div>');
+// const div = doc.querySelector('.greeting');
+// ```
 function parse(text: string): Document {
 	const doc = new Document();
 
@@ -320,12 +422,12 @@ function parse(text: string): Document {
 					}
 				}
 				break;
-		case MarkerType.Start:
-			{
-				const name = marker.name ?? "";
-				// DEBUG - disabled
-				// console.error(`  Start ${name}: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
-				if (name.startsWith("!")) {
+			case MarkerType.Start:
+				{
+					const name = marker.name ?? "";
+					// DEBUG - disabled
+					// console.error(`  Start ${name}: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
+					if (name.startsWith("!")) {
 						const comment = doc.createComment(marker.fragment.rawtext);
 						if (current) {
 							current.appendChild(comment);
@@ -339,29 +441,29 @@ function parse(text: string): Document {
 								element.setAttribute(k, "");
 							}
 						}
-				if (current) {
-					// DEBUG - disabled
-					// console.error(`  Appending ${name} to ${current.nodeName}`);
-					current.appendChild(element);
-				}
-				stack.push(element);
+						if (current) {
+							// DEBUG - disabled
+							// console.error(`  Appending ${name} to ${current.nodeName}`);
+							current.appendChild(element);
+						}
+						stack.push(element);
 
-				current = element as any;
-				// DEBUG - disabled
-				// console.error(`  After push: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
+						current = element as any;
+						// DEBUG - disabled
+						// console.error(`  After push: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
 					}
 				}
 				break;
-		case MarkerType.End:
-			// DEBUG - disabled
-			// console.error(`  End ${marker.name}: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
-			if (stack.length > 1) {
-				stack.pop();
-				current = stack[stack.length - 1];
+			case MarkerType.End:
 				// DEBUG - disabled
-				// console.error(`  After pop: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
-			}
-			break;
+				// console.error(`  End ${marker.name}: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
+				if (stack.length > 1) {
+					stack.pop();
+					current = stack[stack.length - 1];
+					// DEBUG - disabled
+					// console.error(`  After pop: current=${current?.nodeName}, stack=${stack.map(s => s.nodeName).join(',')}`);
+				}
+				break;
 			case MarkerType.Inline:
 				{
 					const name = marker.name ?? "";
@@ -386,3 +488,5 @@ function parse(text: string): Document {
 
 export { parse, parseAttributes };
 export default { parse, parseAttributes };
+
+// EOF

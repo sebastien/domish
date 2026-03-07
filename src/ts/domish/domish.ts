@@ -1,13 +1,33 @@
-// --
-// ## DOMish
+// Project: DOMIsh
+// Author:  Sebastien Pierre
+// License: Revised BSD License
+// Created: 2022-04-21
+
+// Module: domish
+// A pure TypeScript implementation of the DOM for server-side environments.
+// Provides core DOM classes including Node, Element, Document, and supporting
+// utilities like TreeWalker, TokenList, and StyleSheet. Implements standard
+// DOM operations for element creation, traversal, manipulation, and serialization.
 //
-// This is a quick-and-dirty pure TypeScript implementation of the DOM
-// to be used in server-side environments that don't have the DOM API.
-//
-// It is by no means intending to implement the full standard, but should
-// be compliant enough so that it can be used in most use cases. If it has
-// shortcomings, it should be relatively simple to implement the missing
-// bits of functionality.
+// Example:
+// ```typescript
+// const doc = new Document();
+// const div = doc.createElement("div");
+// div.setAttribute("class", "container");
+// doc.body.appendChild(div);
+// console.log(doc.toHTML());
+// ```
+
+import {
+	createFocusEvent,
+	createInputEvent,
+	createKeyboardEvent,
+	createMouseEvent,
+	type Event,
+	Event as EventClass,
+	type EventListener,
+	SubmitEvent,
+} from "./events";
 
 const tags = (...tags: string[]): Map<string, boolean> =>
 	tags.reduce((r, v) => {
@@ -35,8 +55,15 @@ const HTML_EMPTY = tags(
 
 const HTML_NOEMPTY = tags("slot");
 
+// ----------------------------------------------------------------------------
 //
-// ### Query Support
+// QUERY SUPPORT
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Selectors and Matching
+// ============================================================================
+
 const RE_QUERY = /((?<type>[.#]?)(?<name>[\w\d_-]+))|(\[(?<attributes>[^\]]+)\])/g;
 const RE_QUERY_ATTR =
 	/^(?<name>\w+)((?<operator>[~|^$*]?=)("(?<value_0>[^"]+)"|'(?<value_1>[^']+)'|(?<value_2>[^\]]+)))?$/;
@@ -54,23 +81,19 @@ interface Selector {
 	} | null;
 }
 
-interface Event {
-	type: string;
-	target: Node | null;
-	currentTarget: Node | null;
-	defaultPrevented: boolean;
-	preventDefault(): void;
-}
-
-type EventListener = ((event: Event) => void) | { handleEvent(event: Event): void };
-
+// Class: Query
+// Parses CSS selectors and matches them against DOM nodes. Supports element
+// selectors, class selectors (.class), ID selectors (#id), and attribute
+// selectors ([attr]).
+//
+// Attributes:
+// - text: string - the raw selector string
+// - selectors: Selector[] - parsed selector components
 class Query {
 	text: string;
 	selectors: Selector[];
 
 	constructor(query: string) {
-		// TODO: We should support space to do level -2 matches
-		// TODO: We should fail if the selector is not supported
 		this.text = query;
 		const matches = query.match(RE_QUERY);
 		this.selectors = matches
@@ -91,6 +114,8 @@ class Query {
 			: [];
 	}
 
+	// Method: match
+	// Returns `true` if `node` matches all selectors in this query.
 	match(node: Node): boolean {
 		for (let i = 0; i < this.selectors.length; i++) {
 			const selector = this.selectors[i];
@@ -131,10 +156,39 @@ class Query {
 	}
 }
 
-// --
-// ## The Node class
+// ----------------------------------------------------------------------------
 //
-// This is the main class that defines most of the key operations.
+// NODE
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Node Class
+// ============================================================================
+
+// Class: Node
+// The base class for all DOM nodes. Defines standard node operations including
+// traversal, manipulation, serialization, and event handling. All other node
+// types extend this class.
+//
+// Static Properties:
+// - ELEMENT_NODE: number = 1
+// - ATTRIBUTE_NODE: number = 2
+// - TEXT_NODE: number = 3
+// - CDATA_SECTION_NODE: number = 4
+// - PROCESSING_INSTRUCTION_NODE: number = 7
+// - COMMENT_NODE: number = 8
+// - DOCUMENT_NODE: number = 9
+// - DOCUMENT_TYPE_NODE: number = 10
+// - DOCUMENT_FRAGMENT_NODE: number = 11
+// - Namespaces: object - SVG and XLink namespace URIs
+//
+// Instance Properties:
+// - nodeName: string - tag name or node type identifier
+// - nodeType: number - one of the static node type constants
+// - childNodes: Node[] - array of child nodes
+// - parentNode: Node | null - parent node or null if detached
+// - data: string - text data for text/comment nodes
+// - _eventListeners: Map<string, Set<EventListener>> - internal event storage
 class Node {
 	static Namespaces = {
 		svg: "http://www.w3.org/2000/svg",
@@ -166,6 +220,9 @@ class Node {
 		this._eventListeners = new Map();
 	}
 
+	// Method: iterWalk
+	// Recursively traverses the node tree, calling `callback` for each node.
+	// Stop iteration by returning `false` from the callback.
 	iterWalk(callback: (node: Node) => boolean | undefined): void {
 		if (callback(this) !== false) {
 			this.childNodes.forEach((_) => {
@@ -174,22 +231,32 @@ class Node {
 		}
 	}
 
+	// Property: outerHTML
+	// Returns the HTML serialization of this node including its descendants.
 	get outerHTML(): string {
 		return this.toXMLLines({ html: true }).join("");
 	}
 
+	// Property: innerHTML
+	// Returns the HTML serialization of this node's children only.
 	get innerHTML(): string {
 		return this.childNodes.map((_) => _.toXMLLines({ html: true }).join("")).join("");
 	}
 
+	// Property: innerText
+	// Returns the text content of this node and its descendants.
 	get innerText(): string {
 		return this.toText();
 	}
 
+	// Method: querySelector
+	// Returns the first descendant node matching `query`, or undefined if none found.
 	querySelector(query: string): Node | undefined {
 		return this.querySelectorAll(query)[0];
 	}
 
+	// Method: querySelectorAll
+	// Returns all descendant nodes matching `query` as an array.
 	querySelectorAll(query: string): Node[] {
 		let scope: Node[] = [this];
 		for (const qs of query.split(/\s+/)) {
@@ -219,58 +286,84 @@ class Node {
 		return new Query(query).match(this);
 	}
 
-	// --
-	// ### Common accessors
+	// ============================================================================
+	// SUBSECTION: Common Accessors
+	// ============================================================================
 
+	// Property: children
+	// Returns an array of element children (excludes text and comment nodes).
 	get children(): Node[] {
 		return this.childNodes.filter((_) => _.nodeType === Node.ELEMENT_NODE);
 	}
 
+	// Property: firstChild
+	// Returns the first child node, or null if there are no children.
 	get firstChild(): Node | null {
 		return this.childNodes[0] ?? null;
 	}
 
+	// Property: lastChild
+	// Returns the last child node, or null if there are no children.
 	get lastChild(): Node | null {
 		const n = this.childNodes.length;
 		return n > 0 ? (this.childNodes[n - 1] ?? null) : null;
 	}
 
+	// Property: nextSibling
+	// Returns the next sibling node in the parent's children array.
 	get nextSibling(): Node | null {
 		return this._getSiblingAt(this._index, 1);
 	}
 
+	// Property: previousSibling
+	// Returns the previous sibling node in the parent's children array.
 	get previousSibling(): Node | null {
 		return this._getSiblingAt(this._index, -1);
 	}
 
+	// Property: nodeValue
+	// Returns the text content for text nodes, undefined for other node types.
 	get nodeValue(): string | null | undefined {
 		return undefined;
 	}
 
+	// Property: ownerDocument
+	// Returns the Document this node belongs to, or undefined.
 	get ownerDocument(): Document | undefined {
 		return undefined;
 	}
 
+	// Property: parentElement
+	// Returns the parent node as an Element, or null if not attached.
 	get parentElement(): Node | null {
 		return this.parentNode;
 	}
 
+	// Property: textContent
+	// Returns the concatenated text content of this node and all descendants.
 	get textContent(): string {
 		return this.childNodes.length ? this.childNodes.map((_) => _.textContent).join("") : this.data;
 	}
 
-	// --
-	// ### Less common accessors
+	// ============================================================================
+	// SUBSECTION: Less Common Accessors
+	// ============================================================================
 
+	// Property: isConnected
+	// Returns true if this node is attached to a document, false otherwise.
 	get isConnected(): boolean | undefined {
 		return undefined;
 	}
 
-	// --
-	// ### Common methods
+	// ============================================================================
+	// SUBSECTION: Common Methods
+	// ============================================================================
+
+	// Method: appendChild
+	// Appends `node` as the last child of this node. If `node` already has a
+	// parent, it is first removed from that parent.
 	appendChild(node: Node): Node {
 		if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-			// Create a copy of the children array to avoid modification during iteration
 			const children = [...(node as DocumentFragment).childNodes];
 			for (const n of children) {
 				this.appendChild(n);
@@ -286,6 +379,8 @@ class Node {
 		return this;
 	}
 
+	// Method: after
+	// Inserts `nodes` after this node in the parent's children.
 	after(...nodes: Node[]): Node {
 		const parent = this.parentNode;
 		const next = this.nextSibling;
@@ -299,6 +394,8 @@ class Node {
 		return this;
 	}
 
+	// Method: before
+	// Inserts `nodes` before this node in the parent's children.
 	before(...nodes: Node[]): Node {
 		const parent = this.parentNode;
 		for (const node of nodes) {
@@ -307,6 +404,9 @@ class Node {
 		return this;
 	}
 
+	// Method: cloneNode
+	// Returns a copy of this node. If `deep` is true, recursively clones all
+	// descendants and copies event listeners.
 	cloneNode(deep = false): Node {
 		const n = this._create();
 		n.nodeName = this.nodeName;
@@ -327,6 +427,8 @@ class Node {
 		return n;
 	}
 
+	// Method: removeChild
+	// Removes `child` from this node's children and returns this node.
 	removeChild(child: Node): Node {
 		const i = this.childNodes.indexOf(child);
 		if (i >= 0) {
@@ -339,6 +441,8 @@ class Node {
 		return this;
 	}
 
+	// Method: replaceChild
+	// Replaces `oldChild` with `newChild` in this node's children.
 	replaceChild(newChild: Node, oldChild: Node): Node {
 		const i = this.childNodes.indexOf(oldChild);
 		if (i >= 0) {
@@ -350,42 +454,43 @@ class Node {
 		return this;
 	}
 
+	// Method: insertBefore
+	// Inserts `newNode` before `referenceNode` in this node's children. If
+	// `referenceNode` is null, appends to the end.
 	insertBefore(newNode: Node, referenceNode: Node | null): Node {
-		// Handle null referenceNode - append to end
 		if (referenceNode === null) {
 			return this.appendChild(newNode);
 		}
-		// Check if referenceNode is a child of this node
 		const i = this.childNodes.indexOf(referenceNode);
 		if (i < 0) {
 			throw new Error("NotFoundError: The reference node is not a child of this node");
 		}
 
-		// Handle DocumentFragment - insert all children
 		if (newNode.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
 			const fragment = newNode as DocumentFragment;
-			const children = [...fragment.childNodes]; // Create a copy to avoid mutation issues
+			const children = [...fragment.childNodes];
 			for (const child of children) {
 				this.insertBefore(child, referenceNode);
 			}
 			return newNode;
 		}
 
-		// Detach newNode from current parent if it has one
 		if (newNode.parentNode) {
 			newNode.parentNode.removeChild(newNode);
 		}
 
-		// Insert the node
 		this.childNodes.splice(i, 0, newNode);
 		newNode.parentNode = this;
 
 		return newNode;
 	}
 
-	// --
-	// ### Event methods
+	// ============================================================================
+	// SUBSECTION: Event Methods
+	// ============================================================================
 
+	// Method: addEventListener
+	// Registers `listener` to be called when events of `type` are dispatched.
 	addEventListener(type: string, listener: EventListener): void {
 		if (!this._eventListeners.has(type)) {
 			this._eventListeners.set(type, new Set());
@@ -393,6 +498,8 @@ class Node {
 		this._eventListeners.get(type)?.add(listener);
 	}
 
+	// Method: removeEventListener
+	// Removes `listener` from the set of listeners for events of `type`.
 	removeEventListener(type: string, listener: EventListener): void {
 		const listeners = this._eventListeners.get(type);
 		if (listeners) {
@@ -403,23 +510,72 @@ class Node {
 		}
 	}
 
+	// Method: dispatchEvent
+	// Dispatches `event` to this node and all ancestors (bubbling). Returns `true`
+	// if the event was not prevented.
 	dispatchEvent(event: Event): boolean {
-		const listeners = this._eventListeners.get(event.type);
-		if (listeners) {
-			for (const listener of listeners) {
-				if (typeof listener === "function") {
-					listener.call(this, event);
-				} else {
-					listener.handleEvent(event);
+		// Build the event path (bubbling phase only, no capture)
+		const path: Node[] = [];
+		let current: Node | null = this;
+
+		// Build path from target up to root
+		while (current) {
+			path.push(current);
+			current = current.parentNode;
+		}
+
+		// Set event path
+		event._setPath(path as unknown as EventTarget[]);
+
+		// Set target
+		event._setTarget(this as unknown as EventTarget);
+
+		// Dispatch at target and bubble up
+		for (let i = 0; i < path.length; i++) {
+			const node = path[i];
+
+			if (i === 0) {
+				event._setEventPhase(2); // AT_TARGET
+			} else {
+				event._setEventPhase(3); // BUBBLING_PHASE
+			}
+
+			event._setCurrentTarget(node as unknown as EventTarget);
+
+			const listeners = node._eventListeners.get(event.type);
+			if (listeners) {
+				for (const listener of listeners) {
+					if (event._isImmediatePropagationStopped) {
+						break;
+					}
+
+					if (typeof listener === "function") {
+						listener.call(node, event);
+					} else {
+						listener.handleEvent(event);
+					}
 				}
 			}
+
+			if (event._isPropagationStopped) {
+				break;
+			}
+
+			// Don't bubble if event doesn't bubble
+			if (i === 0 && !event.bubbles) {
+				break;
+			}
 		}
+
 		return !event.defaultPrevented;
 	}
 
-	// --
-	// ### Less common methods
+	// ============================================================================
+	// SUBSECTION: Less Common Methods
+	// ============================================================================
 
+	// Method: getRootNode
+	// Returns the root node of the tree (the topmost ancestor of this node).
 	getRootNode(): Node {
 		let node: Node = this;
 		while (node.parentNode) {
@@ -428,28 +584,24 @@ class Node {
 		return node;
 	}
 
+	// Method: hasChildNodes
+	// Returns true if this node has one or more children.
 	hasChildNodes(): boolean {
 		return this.childNodes.length > 0;
 	}
 
-	//   NOTE: Left as not implemented yet
-	//   contains() {}
-	//   isDefaultNamespace() {}
-	//   isEqualNode() {}
-	//   isSameNode() {}
-	//   lookupPrefix() {}
-	//   lookupNamespaceURI() {}
-	//   normalize() {}
-	//   compareDocumentPosition() {}
+	// ============================================================================
+	// SUBSECTION: Serialization
+	// ============================================================================
 
-	// --
-	// ### Serialization
+	// Method: iterText
+	// Generator that yields text content from this node and its descendants.
+	// Handles <br> elements as newlines and escapes HTML entities in text nodes.
 	*iterText(options?: { [key: string]: any }): Generator<string> {
 		switch (this.nodeType) {
 			case Node.DOCUMENT_NODE:
 			case Node.DOCUMENT_FRAGMENT_NODE:
 			case Node.ELEMENT_NODE:
-				// Handle <br> elements as newlines
 				if (this.nodeName && this.nodeName.toLowerCase() === "br") {
 					yield "\n";
 					return;
@@ -461,21 +613,25 @@ class Node {
 				}
 				break;
 			case Node.TEXT_NODE:
-				// FIXME: This is not the right way to do it
 				yield this.data.replace(/&/g, "&amp;").replace(/>/g, "&gt;").replace(/</g, "&lt;");
 				break;
 		}
 	}
 
+	// Method: toText
+	// Returns all text content from this node and its descendants as a single string.
 	toText(options?: { [key: string]: any }): string {
 		return [...this.iterText(options)].join("");
 	}
 
-	// TODO: iterXMLLines
+	// Method: toXMLLines
+	// Returns an array of XML serialization lines for this node.
 	toXMLLines(options?: { [key: string]: any }): string[] {
 		return [...this.iterXMLLines(options)];
 	}
 
+	// Method: iterXMLLines
+	// Generator that yields XML serialization lines for this node and its descendants.
 	*iterXMLLines(options?: { [key: string]: any }): Generator<string> {
 		const has_comments = !(options && options.comments === false);
 		const has_doctype = !(options && options.doctype === false);
@@ -492,7 +648,6 @@ class Node {
 				}
 				break;
 			case Node.DOCUMENT_FRAGMENT_NODE:
-				// Document fragments should not output XML declarations
 				for (const n of this.childNodes) {
 					for (const l of n.iterXMLLines(options)) {
 						yield l;
@@ -600,19 +755,27 @@ class Node {
 	// --
 	// ### Helpers
 
+	// Property: _index
+	// Returns the index of this node in its parent's children array, or -1.
 	get _index(): number {
 		return this.parentNode ? this.parentNode.childNodes.indexOf(this) : -1;
 	}
 
+	// Method: _create
+	// Creates a new blank Node instance for cloning. Override in subclasses.
 	_create(): Node {
 		return new Node("", 0);
 	}
 
+	// Method: _detach
+	// Removes this node from its parent if attached. Returns this node.
 	_detach(): Node {
 		if (this.parentNode) this.parentNode.removeChild(this);
 		return this;
 	}
 
+	// Method: _attach
+	// Attaches this node to `parentNode`, detaching from current parent first.
 	_attach(parentNode: Node): Node {
 		if (parentNode !== this.parentNode) {
 			this._detach();
@@ -621,11 +784,24 @@ class Node {
 		return this;
 	}
 
+	// Method: _getSiblingAt
+	// Returns the sibling at `index + offset` in the parent's children.
 	_getSiblingAt(index: number, offset = 0): Node | null {
 		return this.parentNode?.childNodes[index + offset] || null;
 	}
 }
 
+// ----------------------------------------------------------------------------
+//
+// ATTRIBUTES
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Attribute Node
+// ============================================================================
+
+// Function: getDataSet
+// Helper for dataset proxy. Returns data-* attribute value by property name.
 function getDataSet(target: Element, property: string | symbol): any {
 	// TODO: We may need to do de-camel-case
 	if (typeof property === "string") {
@@ -635,6 +811,14 @@ function getDataSet(target: Element, property: string | symbol): any {
 	return (target as any)[property];
 }
 
+// Class: AttributeNode
+// Represents an element attribute with name, value, and optional namespace.
+//
+// Properties:
+// - name: string - attribute name
+// - namespace: string | null - namespace URI or null
+// - ownerElement: Element | null - element this attribute belongs to
+// - _value: string | undefined - internal value storage
 class AttributeNode extends Node {
 	name: string;
 	namespace: string | null;
@@ -649,6 +833,8 @@ class AttributeNode extends Node {
 		this._value = undefined;
 	}
 
+	// Property: value
+	// Returns the attribute value. Looks up from ownerElement if attached.
 	get value(): string {
 		if (this.ownerElement) {
 			if (this.namespace) {
@@ -688,6 +874,36 @@ class AttributeNode extends Node {
 	}
 }
 
+// ----------------------------------------------------------------------------
+//
+// ELEMENTS
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Element Class
+// ============================================================================
+
+// Class: Element
+// Represents an HTML or XML element with attributes, styles, and children.
+// Extends Node with element-specific functionality like attribute management,
+// classList, and CSS style manipulation.
+//
+// Properties:
+// - namespace: string | null - element namespace URI or null for HTML
+// - style: { [key: string]: string } - inline CSS styles as key-value pairs
+// - _attributes: Map<string, AttributeNode> - regular attributes storage
+// - _attributesNS: Map<string, Map<string, AttributeNode>> - namespaced attributes
+// - classList: TokenList - class attribute manipulation interface
+// - sheet: StyleSheet | null - stylesheet for <style> elements, null otherwise
+// - dataset: any - data-* attribute access via proxy
+//
+// Example:
+// ```typescript
+// const el = doc.createElement("div");
+// el.setAttribute("class", "container");
+// el.classList.add("active");
+// el.style.backgroundColor = "blue";
+// ```
 class Element extends Node {
 	namespace: string | null;
 	style: { [key: string]: string };
@@ -710,10 +926,14 @@ class Element extends Node {
 		this.dataset = new Proxy(this, { get: getDataSet });
 	}
 
+	// Property: id
+	// Returns the value of the id attribute, or null if not set.
 	get id(): string | null {
 		return this.getAttribute("id");
 	}
 
+	// Property: attributes
+	// Returns an array of all AttributeNode instances on this element.
 	get attributes(): AttributeNode[] {
 		const regularAttrs = Array.from(this._attributes.values());
 		const namespacedAttrs: AttributeNode[] = [];
@@ -723,35 +943,39 @@ class Element extends Node {
 		return [...regularAttrs, ...namespacedAttrs];
 	}
 
+	// Method: removeAttribute
+	// Removes the attribute with `name` from this element, including from any namespace.
 	removeAttribute(name: string): void {
 		if (name === "style") {
 			this.style = {};
 		}
-		// Remove from regular attributes
 		this._attributes.delete(name);
-
-		// Also remove from all namespace maps (DOM spec: removeAttribute should remove regardless of namespace)
 		for (const [namespace, nsMap] of this._attributesNS.entries()) {
 			nsMap.delete(name);
-			// Clean up empty namespace maps
 			if (nsMap.size === 0) {
 				this._attributesNS.delete(namespace);
 			}
 		}
 	}
 
+	// Method: removeAttributeNS
+	// Removes the namespaced attribute with `name` from `namespace`.
 	removeAttributeNS(namespace: string, name: string): void {
 		if (this._attributesNS.has(namespace)) {
 			this._attributesNS.get(namespace)?.delete(name);
 		}
 	}
 
+	// Method: setAttribute
+	// Sets the attribute `name` to `value` on this element.
 	setAttribute(name: string, value: string): void {
 		const attrNode = new AttributeNode(name, null, this);
 		attrNode.value = value;
 		this._attributes.set(name, attrNode);
 	}
 
+	// Method: setAttributeNode
+	// Adds an AttributeNode directly to this element.
 	setAttributeNode(node: AttributeNode): void {
 		node.ownerElement = this;
 		if (node.namespace) {
@@ -764,10 +988,14 @@ class Element extends Node {
 		}
 	}
 
+	// Method: getAttributeNode
+	// Returns the AttributeNode for `name`, or null if not set.
 	getAttributeNode(name: string): AttributeNode | null {
 		return this._attributes.get(name) || null;
 	}
 
+	// Method: setAttributeNS
+	// Sets the namespaced attribute `name` in `ns` to `value`.
 	setAttributeNS(ns: string, name: string, value: string): void {
 		if (!this._attributesNS.has(ns)) {
 			this._attributesNS.set(ns, new Map());
@@ -777,19 +1005,27 @@ class Element extends Node {
 		this._attributesNS.get(ns)?.set(name, attrNode);
 	}
 
+	// Method: hasAttribute
+	// Returns true if this element has an attribute named `name`.
 	hasAttribute(name: string): boolean {
 		return this._attributes.has(name);
 	}
 
+	// Method: hasAttributeNS
+	// Returns true if this element has attribute `name` in `namespace`.
 	hasAttributeNS(namespace: string, name: string): boolean {
 		return this._attributesNS.get(namespace)?.has(name) || false;
 	}
 
+	// Method: getAttribute
+	// Returns the value of attribute `name`, or null if not set.
 	getAttribute(name: string): string | null {
 		const attr = this._attributes.get(name);
 		return attr ? attr.value : null;
 	}
 
+	// Method: getAttributeNS
+	// Returns the value of namespaced attribute `name` in `ns`, or null.
 	getAttributeNS(ns: string, name: string): string | null {
 		const nsMap = this._attributesNS.get(ns);
 		if (nsMap) {
@@ -799,6 +1035,8 @@ class Element extends Node {
 		return null;
 	}
 
+	// Method: getAttributeNodeNS
+	// Returns the AttributeNode for namespaced attribute `name` in `ns`, or null.
 	getAttributeNodeNS(ns: string, name: string): AttributeNode | null {
 		const nsMap = this._attributesNS.get(ns);
 		return nsMap ? nsMap.get(name) || null : null;
@@ -850,6 +1088,9 @@ class Element extends Node {
 		return existingNode;
 	}
 
+	// Method: cloneNode
+	// Returns a copy of this element with all attributes. If `deep` is true,
+	// also clones all descendants.
 	override cloneNode(deep?: boolean): Element {
 		const res = super.cloneNode(deep) as Element;
 		for (const [k, v] of this._attributes.entries()) {
@@ -877,9 +1118,10 @@ class Element extends Node {
 		return new Element(this.nodeName, this.namespace);
 	}
 
+	// Method: toJSON
+	// Returns a JSON representation including element name, children, and all attributes.
 	override toJSON(): {
 		name: string;
-
 		children: any[];
 		attributes?: { [key: string]: string };
 	} {
@@ -900,8 +1142,136 @@ class Element extends Node {
 		res.attributes = attr;
 		return res;
 	}
+
+	// ============================================================================
+	// SUBSECTION: Interaction Methods
+	// ============================================================================
+
+	// Method: click
+	// Dispatches a click event on this element. Returns true if not prevented.
+	// `options.x` and `options.y` set client coordinates, `options.button` sets button (0=left).
+	click(options?: { x?: number; y?: number; button?: number }): boolean {
+		const event = createMouseEvent("click", {
+			clientX: options?.x ?? 0,
+			clientY: options?.y ?? 0,
+			button: options?.button ?? 0,
+		});
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
+
+	// Method: dblclick
+	// Dispatches a double-click event on this element.
+	dblclick(options?: { x?: number; y?: number }): boolean {
+		const event = createMouseEvent("dblclick", {
+			clientX: options?.x ?? 0,
+			clientY: options?.y ?? 0,
+		});
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
+
+	// Method: contextMenu
+	// Dispatches a context menu (right-click) event on this element.
+	contextMenu(options?: { x?: number; y?: number }): boolean {
+		const event = createMouseEvent("contextmenu", {
+			clientX: options?.x ?? 0,
+			clientY: options?.y ?? 0,
+			button: 2,
+		});
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
+
+	// Method: focus
+	// Dispatches a focus event on this element.
+	focus(): boolean {
+		const event = createFocusEvent("focus");
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
+
+	// Method: blur
+	// Dispatches a blur event on this element.
+	blur(): boolean {
+		const event = createFocusEvent("blur");
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
+
+	// Method: keyDown
+	// Dispatches a keydown event with `key` and optional modifier flags.
+	keyDown(
+		key: string,
+		options?: { ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean; metaKey?: boolean },
+	): boolean {
+		const event = createKeyboardEvent("keydown", {
+			key,
+			ctrlKey: options?.ctrlKey,
+			shiftKey: options?.shiftKey,
+			altKey: options?.altKey,
+			metaKey: options?.metaKey,
+		});
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
+
+	// Method: keyUp
+	// Dispatches a keyup event with `key` and optional modifier flags.
+	keyUp(
+		key: string,
+		options?: { ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean; metaKey?: boolean },
+	): boolean {
+		const event = createKeyboardEvent("keyup", {
+			key,
+			ctrlKey: options?.ctrlKey,
+			shiftKey: options?.shiftKey,
+			altKey: options?.altKey,
+			metaKey: options?.metaKey,
+		});
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
+
+	// Method: input
+	// Sets the value attribute for input/textarea elements and dispatches
+	// an input event with `value` as the data.
+	input(value: string): boolean {
+		if (this.nodeName.toLowerCase() === "input" || this.nodeName.toLowerCase() === "textarea") {
+			this.setAttribute("value", value);
+		}
+		const event = createInputEvent("input", { data: value });
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
+
+	// Method: change
+	// Sets the value attribute and dispatches a change event on input/select elements.
+	change(value: string): boolean {
+		if (
+			this.nodeName.toLowerCase() === "input" ||
+			this.nodeName.toLowerCase() === "textarea" ||
+			this.nodeName.toLowerCase() === "select"
+		) {
+			this.setAttribute("value", value);
+		}
+		const event = new EventClass("change", { bubbles: true });
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
+
+	// Method: submit
+	// Dispatches a submit event on form elements.
+	submit(): boolean {
+		const event = new SubmitEvent("submit", {
+			bubbles: true,
+			cancelable: true,
+		});
+		return this.dispatchEvent(event as unknown as import("./events").Event);
+	}
 }
 
+// ============================================================================
+// SUBSECTION: Template Element
+// ============================================================================
+
+// Class: TemplateElement
+// Represents a <template> element with a DocumentFragment content.
+// Children are appended to the content fragment, not the element itself.
+//
+// Properties:
+// - content: DocumentFragment - the document fragment holding template content
 class TemplateElement extends Element {
 	content: DocumentFragment;
 
@@ -916,6 +1286,20 @@ class TemplateElement extends Element {
 	}
 }
 
+// ----------------------------------------------------------------------------
+//
+// TEXT AND COMMENT NODES
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Text Node
+// ============================================================================
+
+// Class: TextNode
+// Represents a text node containing character data.
+//
+// Properties:
+// - data: string - the text content of this node
 class TextNode extends Node {
 	constructor(data: string) {
 		super("#text", Node.TEXT_NODE);
@@ -926,6 +1310,8 @@ class TextNode extends Node {
 		return new TextNode(this.data);
 	}
 
+	// Property: nodeValue
+	// Returns the text data of this node.
 	override get nodeValue(): string {
 		return this.data;
 	}
@@ -935,6 +1321,15 @@ class TextNode extends Node {
 	}
 }
 
+// ============================================================================
+// SUBSECTION: Comment Node
+// ============================================================================
+
+// Class: Comment
+// Represents an HTML/XML comment node.
+//
+// Properties:
+// - data: string - the comment text content
 class Comment extends Node {
 	constructor(data: string) {
 		super("#comment", Node.COMMENT_NODE);
@@ -945,6 +1340,8 @@ class Comment extends Node {
 		return new Comment(this.data);
 	}
 
+	// Property: nodeValue
+	// Returns the comment text.
 	override get nodeValue(): string {
 		return this.data;
 	}
@@ -954,12 +1351,42 @@ class Comment extends Node {
 	}
 }
 
+// ============================================================================
+// SUBSECTION: Document Fragment
+// ============================================================================
+
+// Class: DocumentFragment
+// Represents a lightweight container for nodes. Can be used to append multiple
+// nodes at once without a wrapper element.
 class DocumentFragment extends Node {
 	constructor() {
 		super("document-fragment", Node.DOCUMENT_FRAGMENT_NODE);
 	}
 }
 
+// ----------------------------------------------------------------------------
+//
+// DOCUMENT
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Document Class
+// ============================================================================
+
+// Class: Document
+// The root of the DOM tree. Factory for creating elements and text nodes.
+// Maintains a body element and a registry of elements with IDs.
+//
+// Properties:
+// - body: Element - the document body element
+// - _elements: Element[] - internal registry of created elements
+//
+// Example:
+// ```typescript
+// const doc = new Document();
+// const div = doc.createElement("div");
+// doc.body.appendChild(div);
+// ```
 class Document extends Node {
 	body: Element;
 	_elements: Element[];
@@ -968,7 +1395,7 @@ class Document extends Node {
 		super("#document", Node.DOCUMENT_NODE);
 		this.body = new Element("body");
 		this._elements = [];
-		// Non standard
+		// Non standard: optionally append initial nodes
 		if (nodes) {
 			for (const node of nodes) {
 				if (node) this.appendChild(node);
@@ -976,6 +1403,8 @@ class Document extends Node {
 		}
 	}
 
+	// Method: getElementById
+	// Returns the element with `id`, or null if not found.
 	getElementById(id: string): Element | null {
 		for (const n of this._elements) {
 			if (n && n.id === id) {
@@ -985,26 +1414,39 @@ class Document extends Node {
 		return null;
 	}
 
+	// Method: createTreeWalker
+	// Creates a TreeWalker for traversing the DOM starting at `node`.
 	createTreeWalker(node: Node, nodeFilter: number): TreeWalker {
 		return new TreeWalker(node, nodeFilter);
 	}
 
+	// Method: createTextNode
+	// Creates a new TextNode with `value`.
 	createTextNode(value: string): TextNode {
 		return new TextNode(value);
 	}
 
+	// Method: createAttribute
+	// Creates a new AttributeNode with `name` (not attached to any element).
 	createAttribute(name: string): AttributeNode {
 		return new AttributeNode(name, null, null);
 	}
 
+	// Method: createComment
+	// Creates a new Comment node with `value`.
 	createComment(value: string): Comment {
 		return new Comment(value);
 	}
 
+	// Method: createDocumentFragment
+	// Creates a new empty DocumentFragment.
 	createDocumentFragment(): DocumentFragment {
 		return new DocumentFragment();
 	}
 
+	// Method: createElement
+	// Creates a new Element with `name`. Returns TemplateElement for "template".
+	// Automatically registers the element for getElementById lookups.
 	createElement(name: string): Element {
 		let element: Element;
 		switch (name) {
@@ -1018,10 +1460,14 @@ class Document extends Node {
 		return this._register(element);
 	}
 
+	// Method: createElementNS
+	// Creates a new Element with `name` in `namespace`.
 	createElementNS(namespace: string, name: string): Element {
 		return this._register(new Element(name, namespace));
 	}
 
+	// Method: _register
+	// Internal method to register an element for getElementById lookups.
 	_register(element: Element): Element {
 		this._elements.push(element);
 		return element;
@@ -1032,6 +1478,17 @@ class Document extends Node {
 	}
 }
 
+// ----------------------------------------------------------------------------
+//
+// TREE WALKER
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Node Filter
+// ============================================================================
+
+// Constant: NodeFilter
+// Bitmask constants for filtering node types in TreeWalker.
 const NodeFilter = {
 	SHOW_ALL: 4294967295,
 	SHOW_ATTRIBUTE: 2,
@@ -1048,6 +1505,19 @@ const NodeFilter = {
 	SHOW_TEXT: 4,
 };
 
+// ============================================================================
+// SUBSECTION: Tree Walker
+// ============================================================================
+
+// Class: TreeWalker
+// Iterates through a DOM tree, filtering nodes by type. Uses depth-first
+// traversal and can optionally apply a custom predicate filter.
+//
+// Properties:
+// - root: Node - the starting node for the walk
+// - currentNode: Node - current position in the iteration
+// - nodeFilter: number - bitmask of NodeFilter constants
+// - predicate: (node: Node) => boolean - optional custom filter function
 class TreeWalker {
 	root: Node;
 	currentNode: Node;
@@ -1059,7 +1529,6 @@ class TreeWalker {
 		this.currentNode = root;
 		this.nodeFilter = nodeFilter;
 		this.predicate = predicate;
-		// TODO: Support attributes
 	}
 
 	_nextNode(node: Node | null): Node | null {
@@ -1106,6 +1575,8 @@ class TreeWalker {
 		}
 	}
 
+	// Method: nextNode
+	// Advances to the next node matching the filter and returns it, or null.
 	nextNode(): Node | null {
 		let next = this._nextNode(this.currentNode);
 		while (next && !this._acceptNode(next)) {
@@ -1116,11 +1587,29 @@ class TreeWalker {
 	}
 }
 
-// --
-// ## Token List
+// ----------------------------------------------------------------------------
 //
-// This is used to work with `classList`, for instance.
+// TOKEN LIST
 //
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: Token List
+// ============================================================================
+
+// Class: TokenList
+// Manages a space-separated token attribute (like classList). Provides methods
+// to add, remove, toggle, and check for token membership.
+//
+// Properties:
+// - element: Element - the element whose attribute this list manages
+// - attribute: string - the attribute name (default: "class")
+//
+// Example:
+// ```typescript
+// el.classList.add("active");
+// el.classList.remove("hidden");
+// if (el.classList.contains("visible")) { ... }
+// ```
 class TokenList {
 	element: Element;
 	attribute: string;
@@ -1130,6 +1619,8 @@ class TokenList {
 		this.attribute = attribute;
 	}
 
+	// Method: add
+	// Adds `value` to the token list if not already present.
 	add(value: string): void {
 		if (!this.contains(value)) {
 			const v = this._get();
@@ -1137,10 +1628,14 @@ class TokenList {
 		}
 	}
 
+	// Method: contains
+	// Returns true if `value` is in the token list.
 	contains(value: string): boolean {
 		return this._get().split(" ").indexOf(value) >= 0;
 	}
 
+	// Method: remove
+	// Removes `value` from the token list if present.
 	remove(value: string): void {
 		this._set(
 			this._get()
@@ -1150,6 +1645,8 @@ class TokenList {
 		);
 	}
 
+	// Method: toggle
+	// Adds `value` if not present, removes it if present. Returns true if added.
 	toggle(value: string): boolean {
 		if (this.contains(value)) {
 			this.remove(value);
@@ -1169,6 +1666,21 @@ class TokenList {
 	}
 }
 
+// ----------------------------------------------------------------------------
+//
+// STYLESHEET
+//
+// ----------------------------------------------------------------------------
+// ============================================================================
+// SUBSECTION: StyleSheet
+// ============================================================================
+
+// Class: StyleSheet
+// Manages a list of CSS rules for <style> elements. Provides methods to
+// insert and delete rules by index.
+//
+// Properties:
+// - cssRules: string[] - array of CSS rule strings
 class StyleSheet {
 	cssRules: string[];
 
@@ -1176,17 +1688,27 @@ class StyleSheet {
 		this.cssRules = [];
 	}
 
+	// Method: deleteRule
+	// Removes the CSS rule at `index`.
 	deleteRule(index: number): StyleSheet {
 		this.cssRules.splice(index, 1);
 		return this;
 	}
 
+	// Method: insertRule
+	// Inserts `rule` at `index` (default 0). Returns this for chaining.
 	insertRule(rule: string, index = 0): StyleSheet {
 		this.cssRules.splice(index, 0, rule);
 		return this;
 	}
 }
 
+// ============================================================================
+// SUBSECTION: CSS Property Name Conversion
+// ============================================================================
+
+// Function: toCSSPropertyName
+// Converts camelCase property names to kebab-case CSS property names.
 const toCSSPropertyName = (name: string): string => {
 	const property = /[A-Za-z][a-z]*/g;
 	const res: string[] = [];
@@ -1202,16 +1724,14 @@ const toCSSPropertyName = (name: string): string => {
 	return res.join("-");
 };
 
-// --
-// ## References
+// ----------------------------------------------------------------------------
 //
-// - DOM API Reference at [DevDocs](https://devdocs.io/dom/node).
-// - DOM.js, by Andreas Gal on [Github](https://github.com/andreasgal/dom.js),
-//   which aims to be an IDL-compliant DOM implementation. We don't really
-//   want to go there.
-// - Deno DOM, by b-fuze on [Github](https://github.com/b-fuze/deno-dom), which
-//   is a Deno-specific, Rust-based implementation
+// REFERENCES
 //
+// ----------------------------------------------------------------------------
+// - DOM API Reference at [DevDocs](https://devdocs.io/dom/node)
+// - DOM.js by Andreas Gal: https://github.com/andreasgal/dom.js
+// - Deno DOM by b-fuze: https://github.com/b-fuze/deno-dom
 
 const NodeList = Array;
 const StyleSheetList = Array;
@@ -1228,10 +1748,14 @@ const DOM = {
 	NodeFilter,
 	StyleSheetList,
 	document,
+	Event: EventClass,
 };
 
+// Function: install
+// Installs DOM globals (document, DOM classes) into `target` (default: globalThis).
+// Returns the modified target object.
 function install(target: typeof globalThis = globalThis): typeof globalThis {
-	return Object.assign(target, DOM);
+	return target.document ? target : Object.assign(target, DOM);
 }
 
 export {
@@ -1254,5 +1778,7 @@ export {
 	HTMLElement,
 	install,
 };
+
 export default DOM;
+
 // EOF
