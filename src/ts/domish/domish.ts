@@ -1755,7 +1755,7 @@ const DOM = {
 // Installs DOM globals (document, DOM classes) into `target` (default: globalThis).
 // Returns the modified target object.
 function install(target: typeof globalThis = globalThis): typeof globalThis {
-	return target.document ? target : Object.assign(target, DOM);
+	return globalThis.window ? target : Object.assign(target, DOM);
 }
 
 export {
