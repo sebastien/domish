@@ -7,6 +7,7 @@ import {
 	document,
 	Element,
 	HTML_EMPTY,
+	install,
 	Node,
 	NodeFilter,
 	StyleSheet,
@@ -510,5 +511,157 @@ describe("global document", () => {
 	test("document can create elements", () => {
 		const el = document.createElement("div");
 		expect(el.nodeName).toBe("div");
+	});
+});
+
+describe("querySelector/querySelectorAll matching", () => {
+	let doc: Document;
+
+	beforeEach(() => {
+		doc = new Document();
+	});
+
+	test("matches element by tag name", () => {
+		const el = doc.createElement("div");
+		expect(el.matches("div")).toBe(true);
+		expect(el.matches("span")).toBe(false);
+	});
+
+	test("matches element by class name", () => {
+		const el = doc.createElement("div");
+		el.setAttribute("class", "foo bar");
+		expect(el.matches(".foo")).toBe(true);
+		expect(el.matches(".bar")).toBe(true);
+		expect(el.matches(".baz")).toBe(false);
+	});
+
+	test("matches element by id", () => {
+		const el = doc.createElement("div");
+		el.setAttribute("id", "main");
+		expect(el.matches("#main")).toBe(true);
+		expect(el.matches("#other")).toBe(false);
+	});
+
+	test("querySelectorAll finds elements by tag name", () => {
+		const root = doc.createElement("div");
+		const child1 = doc.createElement("span");
+		const child2 = doc.createElement("span");
+		const other = doc.createElement("p");
+		root.appendChild(child1);
+		root.appendChild(other);
+		other.appendChild(child2);
+
+		const results = root.querySelectorAll("span");
+		expect(results.length).toBe(2);
+		expect(results).toContain(child1);
+		expect(results).toContain(child2);
+	});
+
+	test("querySelectorAll finds nested elements", () => {
+		const root = doc.createElement("table");
+		const tbody = doc.createElement("tbody");
+		const tr = doc.createElement("tr");
+		const td = doc.createElement("td");
+		root.appendChild(tbody);
+		tbody.appendChild(tr);
+		tr.appendChild(td);
+
+		expect(root.querySelectorAll("tbody").length).toBe(1);
+		expect(root.querySelectorAll("tr").length).toBe(1);
+		expect(root.querySelectorAll("td").length).toBe(1);
+		expect(root.querySelector("td")).toBe(td);
+	});
+
+	test("querySelectorAll finds elements by class", () => {
+		const root = doc.createElement("div");
+		const a = doc.createElement("span");
+		a.setAttribute("class", "highlight");
+		const b = doc.createElement("span");
+		root.appendChild(a);
+		root.appendChild(b);
+
+		const results = root.querySelectorAll(".highlight");
+		expect(results.length).toBe(1);
+		expect(results[0]).toBe(a);
+	});
+
+	test("querySelectorAll with descendant combinator", () => {
+		const root = doc.createElement("div");
+		const ul = doc.createElement("ul");
+		const li = doc.createElement("li");
+		root.appendChild(ul);
+		ul.appendChild(li);
+
+		// "ul li" should match li elements inside ul
+		const results = root.querySelectorAll("ul li");
+		expect(results.length).toBe(1);
+		expect(results[0]).toBe(li);
+	});
+
+	test("querySelector returns undefined when no match", () => {
+		const root = doc.createElement("div");
+		expect(root.querySelector("span")).toBeUndefined();
+	});
+});
+
+describe("document.querySelector searches through body", () => {
+	test("document.querySelector finds elements appended to body", () => {
+		const doc = new Document();
+		const div = doc.createElement("div");
+		doc.body.appendChild(div);
+		const table = doc.createElement("table");
+		div.appendChild(table);
+		const tbody = doc.createElement("tbody");
+		table.appendChild(tbody);
+
+		// document.querySelector should find tbody even though body
+		// is not in the document's childNodes list.
+		expect(doc.querySelector("tbody")).toBe(tbody);
+	});
+
+	test("document.querySelectorAll finds multiple elements through body", () => {
+		const doc = new Document();
+		const tr1 = doc.createElement("tr");
+		const tr2 = doc.createElement("tr");
+		const tbody = doc.createElement("tbody");
+		tbody.appendChild(tr1);
+		tbody.appendChild(tr2);
+		doc.body.appendChild(tbody);
+
+		const results = doc.querySelectorAll("tr");
+		expect(results.length).toBe(2);
+		expect(results).toContain(tr1);
+		expect(results).toContain(tr2);
+	});
+
+	test("document.querySelector prefers childNodes over body fallback", () => {
+		const doc = new Document();
+		const direct = doc.createElement("section");
+		doc.appendChild(direct);
+		const inBody = doc.createElement("section");
+		doc.body.appendChild(inBody);
+
+		// Should find the directly-appended one first
+		expect(doc.querySelector("section")).toBe(direct);
+	});
+});
+
+describe("install creates fresh document", () => {
+	test("install resets document between calls", () => {
+		install();
+		const div = globalThis.document.createElement("div");
+		globalThis.document.body.appendChild(div);
+		expect(globalThis.document.body.childNodes.length).toBe(1);
+
+		// Second install should give a fresh document with empty body
+		install();
+		expect(globalThis.document.body.childNodes.length).toBe(0);
+	});
+
+	test("install produces a working document", () => {
+		install();
+		const el = globalThis.document.createElement("span");
+		globalThis.document.body.appendChild(el);
+		expect(globalThis.document.body.querySelector("span")).toBe(el);
 	});
 });

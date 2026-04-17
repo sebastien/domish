@@ -95,7 +95,7 @@ class Query {
 
 	constructor(query: string) {
 		this.text = query;
-		const matches = query.match(RE_QUERY);
+		const matches = [...query.matchAll(RE_QUERY)];
 		this.selectors = matches
 			? matches.map((match: any) => {
 					const g = (match as any).groups;
@@ -1417,6 +1417,22 @@ class Document extends Node {
 		return null;
 	}
 
+	// Method: querySelectorAll
+	// Overrides Node.querySelectorAll to also search through `document.body`
+	// which may not be in the document's child node list (matching browser
+	// behaviour where `document.querySelector` always searches the full tree).
+	querySelectorAll(query: string): Node[] {
+		const results = super.querySelectorAll(query);
+		if (results.length > 0) {
+			return results;
+		}
+		// Fallback: search through body if not already in childNodes.
+		if (this.body && !this.childNodes.includes(this.body)) {
+			return this.body.querySelectorAll(query);
+		}
+		return results;
+	}
+
 	// Method: createTreeWalker
 	// Creates a TreeWalker for traversing the DOM starting at `node`.
 	createTreeWalker(node: Node, nodeFilter: number): TreeWalker {
@@ -1738,7 +1754,7 @@ const toCSSPropertyName = (name: string): string => {
 
 const NodeList = Array;
 const StyleSheetList = Array;
-const document = new Document();
+let document = new Document();
 // Alias HTMLElement to Element for compatibility
 const HTMLElement = Element;
 
@@ -1756,9 +1772,16 @@ const DOM = {
 
 // Function: install
 // Installs DOM globals (document, DOM classes) into `target` (default: globalThis).
+// Creates a fresh Document on each call so that repeated installs (e.g. in test
+// `beforeEach` hooks) start with a clean DOM tree.
 // Returns the modified target object.
 function install(target: typeof globalThis = globalThis): typeof globalThis {
-	return globalThis.window ? target : Object.assign(target, DOM);
+	if (globalThis.window) {
+		return target;
+	}
+	document = new Document();
+	DOM.document = document;
+	return Object.assign(target, DOM);
 }
 
 export {
