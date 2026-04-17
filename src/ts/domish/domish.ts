@@ -461,10 +461,6 @@ class Node {
 		if (referenceNode === null) {
 			return this.appendChild(newNode);
 		}
-		const i = this.childNodes.indexOf(referenceNode);
-		if (i < 0) {
-			throw new Error("NotFoundError: The reference node is not a child of this node");
-		}
 
 		if (newNode.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
 			const fragment = newNode as DocumentFragment;
@@ -477,6 +473,13 @@ class Node {
 
 		if (newNode.parentNode) {
 			newNode.parentNode.removeChild(newNode);
+		}
+
+		// Find the reference index AFTER removing the node, since
+		// removeChild may have shifted indices in this same parent.
+		const i = this.childNodes.indexOf(referenceNode);
+		if (i < 0) {
+			throw new Error("NotFoundError: The reference node is not a child of this node");
 		}
 
 		this.childNodes.splice(i, 0, newNode);
